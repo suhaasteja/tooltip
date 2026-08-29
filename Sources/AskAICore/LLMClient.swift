@@ -7,6 +7,31 @@ import Foundation
 /// the orchestrator testable without a network.
 public protocol LLMClient: Sendable {
     func complete(system: String?, prompt: String) async throws -> String
+
+    /// Streams the answer, invoking `onDelta` with each text fragment as it
+    /// arrives, and returning the full text.
+    ///
+    /// Has a default implementation that simply calls `complete` and emits one
+    /// delta, so conformers only override it if they can genuinely stream. That
+    /// keeps the non-streaming path — and every test written against it —
+    /// intact.
+    func stream(
+        system: String?,
+        prompt: String,
+        onDelta: @escaping @Sendable (String) -> Void
+    ) async throws -> String
+}
+
+public extension LLMClient {
+    func stream(
+        system: String?,
+        prompt: String,
+        onDelta: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        let text = try await complete(system: system, prompt: prompt)
+        onDelta(text)
+        return text
+    }
 }
 
 /// Everything that can go wrong, mapped to something a user can act on.

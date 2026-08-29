@@ -9,11 +9,13 @@ public final class AskOrchestrator {
 
     private let client: LLMClient
     private let machine: PanelViewModel
+    private let streaming: Bool
     private var inFlight: Task<Void, Never>?
 
-    public init(client: LLMClient, machine: PanelViewModel) {
+    public init(client: LLMClient, machine: PanelViewModel, streaming: Bool = false) {
         self.client = client
         self.machine = machine
+        self.streaming = streaming
     }
 
     /// Starts a request, cancelling any previous one.
@@ -35,9 +37,16 @@ public final class AskOrchestrator {
         let requestID = machine.startLoading(selection: selection)
         let prompt = PromptTemplate.render(template: template, selection: selection)
 
-        let task = Task { [client, machine] in
+        let task = Task { [client, machine, streaming] in
             do {
-                let answer = try await client.complete(system: system, prompt: prompt)
+                let answer: String
+                if streaming {
+                    answer = try await client.stream(system: system, prompt: prompt) { delta in
+                        machine.appendDelta(requestID: requestID, delta)
+                    }
+                } else {
+                    answer = try await client.complete(system: system, prompt: prompt)
+                }
                 try Task.checkCancellation()
                 machine.finish(requestID: requestID, answer: answer)
             } catch is CancellationError {

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 import AskAICore
 
@@ -28,6 +29,22 @@ final class PanelModel: ObservableObject {
                 DispatchQueue.main.async { self?.state = newState }
             }
         }
+    }
+
+    /// Briefly true after a copy, to swap the button label for feedback.
+    @Published private(set) var didCopy = false
+    private var copyResetWork: DispatchWorkItem?
+
+    func copy(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        didCopy = true
+        copyResetWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.didCopy = false }
+        copyResetWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
     func retry() {

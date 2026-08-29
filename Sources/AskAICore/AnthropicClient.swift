@@ -62,7 +62,9 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
 
     /// Builds the POST. Exposed for tests so header/URL/body assertions do not
     /// need a live request.
-    public func makeRequest(system: String?, prompt: String) throws -> URLRequest {
+    public func makeRequest(
+        system: String?, prompt: String, streaming: Bool = false
+    ) throws -> URLRequest {
         guard let apiKey, !apiKey.isEmpty else { throw LLMError.missingAPIKey }
 
         var request = URLRequest(url: configuration.baseURL)
@@ -79,6 +81,9 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
         ]
         if let system, !system.isEmpty {
             body["system"] = system
+        }
+        if streaming {
+            body["stream"] = true
         }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
@@ -109,6 +114,88 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
             throw Self.mapFailure(status: http.statusCode, body: data)
         }
         return try Self.parseText(from: data)
+    }
+
+    // MARK: - Streaming
+
+    public func stream(
+        system: String?,
+        prompt: String,
+        onDelta: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        let request = try makeRequest(system: system, prompt: prompt, streaming: true)
+
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: request)
+        } catch let error as URLError where error.code == .cancelled {
+            throw LLMError.cancelled
+        } catch {
+            throw LLMError.network(error.localizedDescription)
+        }
+
+        guard let http = response as? HTTPURLResponse else { throw LLMError.decoding }
+        guard (200..<300).contains(http.statusCode) else {
+            // The error body is not SSE; drain it so the message survives.
+            var body = Data()
+            for try await byte in bytes { body.append(byte) }
+            throw Self.mapFailure(status: http.statusCode, body: body)
+        }
+
+        var full = ""
+        do {
+            for try await line in bytes.lines {
+                try Task.checkCancellation()
+                if let delta = Self.textDelta(fromSSELine: line) {
+                    full += delta
+                    onDelta(delta)
+                }
+            }
+        } catch is CancellationError {
+            throw LLMError.cancelled
+        } catch let error as URLError where error.code == .cancelled {
+            throw LLMError.cancelled
+        } catch let error as LLMError {
+            throw error
+        } catch {
+            // A mid-stream transport drop with usable text is better surfaced
+            // as a truncated answer than as a total failure.
+            guard full.isEmpty else { return full }
+            throw LLMError.network(error.localizedDescription)
+        }
+
+        guard !full.isEmpty else { throw LLMError.decoding }
+        return full
+    }
+
+    /// Extracts the text fragment from one SSE line, or `nil` if the line
+    /// carries no text (event names, pings, `[DONE]`, thinking deltas, blanks).
+    ///
+    /// Pure and `internal` so the wire format is unit-testable without a
+    /// network or a live stream.
+    static func textDelta(fromSSELine line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("data:") else { return nil }
+
+        let payload = trimmed.dropFirst("data:".count)
+            .trimmingCharacters(in: .whitespaces)
+        guard !payload.isEmpty, payload != "[DONE]" else { return nil }
+
+        guard
+            let data = payload.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        // Only text deltas contribute. `thinking_delta` is explicitly ignored:
+        // reasoning must never be rendered as the answer.
+        guard object["type"] as? String == "content_block_delta",
+              let delta = object["delta"] as? [String: Any],
+              delta["type"] as? String == "text_delta",
+              let text = delta["text"] as? String
+        else { return nil }
+
+        return text
     }
 
     // MARK: - Response handling

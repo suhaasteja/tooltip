@@ -81,7 +81,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             client = AnthropicClient(apiKey: key, configuration: settings.configuration())
         }
-        return AskOrchestrator(client: client, machine: resultPanel.machine)
+        return AskOrchestrator(
+            client: client,
+            machine: resultPanel.machine,
+            streaming: settings.isStreamingEnabled
+        )
     }
 
     private func ask(selection: String, slot: Int) {
@@ -144,12 +148,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ","
         ).target = self
         menu.addItem(.separator())
-        // Temporary, for manual verification. Removed in Stage 8.
-        menu.addItem(
-            withTitle: "Show test panel",
-            action: #selector(showTestPanel),
-            keyEquivalent: ""
-        ).target = self
         menu.addItem(
             withTitle: "Open Services Shortcuts…",
             action: #selector(openServicesShortcuts),
@@ -183,11 +181,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.keyboard?Shortcuts")!
         NSWorkspace.shared.open(url)
-    }
-
-    @objc private func showTestPanel() {
-        resultPanel.show()
-        ask(selection: "The mitochondria is the powerhouse of the cell.", slot: 1)
     }
 
     @objc private func quit() {

@@ -59,6 +59,16 @@ struct ResultPanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxHeight: Self.maxContentHeight)
+            HStack {
+                Spacer()
+                Button(action: { model.copy(answer) }) {
+                    Label(model.didCopy ? "Copied" : "Copy",
+                          systemImage: model.didCopy ? "checkmark" : "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            }
 
         case .failure(_, let message, let retryable):
             VStack(alignment: .leading, spacing: 8) {

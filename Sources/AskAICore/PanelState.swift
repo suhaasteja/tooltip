@@ -59,11 +59,33 @@ public final class PanelViewModel {
         transition(to: .emptySelection)
     }
 
+    /// Appends a streamed fragment, moving out of `.loading` on the first one.
+    ///
+    /// Ignored if superseded, so a cancelled stream's in-flight deltas cannot
+    /// bleed into a newer answer.
+    /// - Returns: `true` if the state changed.
+    @discardableResult
+    public func appendDelta(requestID: UInt64, _ delta: String) -> Bool {
+        guard requestID == currentRequestID else { return false }
+        switch state {
+        case .loading(let selection):
+            transition(to: .success(selection: selection, answer: delta))
+            return true
+        case .success(let selection, let soFar):
+            transition(to: .success(selection: selection, answer: soFar + delta))
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Applies a successful result, ignoring it if superseded.
     /// - Returns: `true` if the state changed.
     @discardableResult
     public func finish(requestID: UInt64, answer: String) -> Bool {
         guard requestID == currentRequestID, let selection = state.selection else { return false }
+        // Already-streamed text is identical to `answer`; re-setting it is a
+        // no-op rather than a duplication, because the full text is passed.
         transition(to: .success(selection: selection, answer: answer))
         return true
     }

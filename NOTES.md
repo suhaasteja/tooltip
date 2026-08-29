@@ -262,3 +262,39 @@ Ask AI: Summarise -> true    slot=2
 Ask AI: Translate -> true    slot=3
 Ask AI: Custom    -> true    slot=4
 ```
+
+---
+
+## Stage 8
+
+### Streaming added without disturbing the non-streaming path
+
+`stream(system:prompt:onDelta:)` was added to the `LLMClient` protocol **with a
+default implementation** that calls `complete` and emits a single delta. So
+`MockLLMClient` and every existing test keep working untouched, and only
+`AnthropicClient` overrides it. Streaming is a user setting (default on) and the
+orchestrator picks the path.
+
+SSE parsing is a pure static function (`AnthropicClient.textDelta(fromSSELine:)`)
+rather than being buried in the byte loop, so the wire format is unit-tested
+without a network: `[DONE]`, ping, comment, event-name and blank lines, missing
+space after `data:`, malformed JSON, and whitespace preservation.
+
+`thinking_delta` events are explicitly ignored. This model tier thinks by
+default, so without that filter the panel would render the model's reasoning as
+the answer.
+
+A mid-stream transport drop with text already received returns the partial answer
+rather than throwing — a truncated answer beats losing a half-written one.
+
+### Not verified against the live endpoint
+
+Streaming is tested against the documented SSE shape and through the orchestrator
+with a fake streaming client, but no real API key was used in this session, so
+the live stream is unexercised. Flagged in README "Known gaps" and step 7 of
+MANUAL-QA.md rather than being quietly claimed.
+
+### Temporary test-panel menu entry removed
+
+The Stage 3 "Show test panel" item is gone, as the plan required. `make probe`
+covers the same ground better, from outside the app.
