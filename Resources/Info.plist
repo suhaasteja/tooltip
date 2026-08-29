@@ -26,18 +26,23 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<!-- Four fixed slots. NSServices is read at registration time and cannot be
+	     changed at runtime, so the TITLES are frozen here while the prompt
+	     BODIES stay user-editable in UserDefaults. Each NSMessage resolves to
+	     askAIN:userData:error: on ServiceProvider. Adding a slot means editing
+	     this file, adding the matching @objc method, re-signing, and
+	     re-installing. -->
 	<key>NSServices</key>
 	<array>
 		<dict>
-			<!-- Resolves to the selector askAI:userData:error: on ServiceProvider. -->
 			<key>NSMessage</key>
-			<string>askAI</string>
+			<string>askAI1</string>
 			<key>NSPortName</key>
 			<string>AskAI</string>
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>Ask AI</string>
+				<string>Ask AI: Explain</string>
 			</dict>
 			<key>NSSendTypes</key>
 			<array>
@@ -46,6 +51,60 @@
 			</array>
 			<!-- Must be present even when empty, or the service never appears
 			     anywhere, with no error logged. PLAN.md appendix #1. -->
+			<key>NSRequiredContext</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>NSMessage</key>
+			<string>askAI2</string>
+			<key>NSPortName</key>
+			<string>AskAI</string>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Ask AI: Summarise</string>
+			</dict>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>NSMessage</key>
+			<string>askAI3</string>
+			<key>NSPortName</key>
+			<string>AskAI</string>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Ask AI: Translate</string>
+			</dict>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<key>NSRequiredContext</key>
+			<dict/>
+		</dict>
+		<dict>
+			<key>NSMessage</key>
+			<string>askAI4</string>
+			<key>NSPortName</key>
+			<string>AskAI</string>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Ask AI: Custom</string>
+			</dict>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+				<string>public.utf8-plain-text</string>
+			</array>
 			<key>NSRequiredContext</key>
 			<dict/>
 		</dict>

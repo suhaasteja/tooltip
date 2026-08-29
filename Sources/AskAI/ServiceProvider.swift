@@ -14,18 +14,34 @@ import AskAICore
 /// rather than another provider.
 final class ServiceProvider: NSObject {
 
-    /// Invoked with the cleaned selection. Set by `AppDelegate`.
-    var onSelection: ((Selection) -> Void)?
+    /// Invoked with the cleaned selection and the slot that fired.
+    var onSelection: ((Selection, Int) -> Void)?
     /// Invoked when the pasteboard carried nothing usable.
     var onEmptySelection: (() -> Void)?
 
-    @objc func askAI(
-        _ pboard: NSPasteboard,
-        userData: String?,
+    // One method per Info.plist slot. AppKit permits a single provider object
+    // per app, so slots are methods here rather than separate providers, and
+    // each name must match its NSMessage exactly.
+
+    @objc func askAI1(
+        _ pboard: NSPasteboard, userData: String?,
         error: AutoreleasingUnsafeMutablePointer<NSString?>
-    ) {
-        handle(pboard: pboard, slot: 1)
-    }
+    ) { handle(pboard: pboard, slot: 1) }
+
+    @objc func askAI2(
+        _ pboard: NSPasteboard, userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString?>
+    ) { handle(pboard: pboard, slot: 2) }
+
+    @objc func askAI3(
+        _ pboard: NSPasteboard, userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString?>
+    ) { handle(pboard: pboard, slot: 3) }
+
+    @objc func askAI4(
+        _ pboard: NSPasteboard, userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString?>
+    ) { handle(pboard: pboard, slot: 4) }
 
     /// Shared body for every prompt slot.
     ///
@@ -48,7 +64,7 @@ final class ServiceProvider: NSObject {
             truncated=\(selection.wasTruncated, privacy: .public)
             """
         )
-        dispatchToMain { self.onSelection?(selection) }
+        dispatchToMain { self.onSelection?(selection, slot) }
     }
 
     /// Services invocations arrive on a non-main thread; all UI work must hop.

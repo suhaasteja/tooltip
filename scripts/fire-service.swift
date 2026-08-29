@@ -13,9 +13,14 @@ let pb = NSPasteboard(name: .init(rawValue: "AskAIProbePasteboard"))
 pb.clearContents()
 pb.setString(text, forType: .string)
 
+// The item name is the bare menu title as it appears in the Services menu.
+// "AskAI/Ask AI: Explain" does NOT work; the app-name prefix must be omitted.
+let slot = ProcessInfo.processInfo.environment["SLOT"] ?? "Explain"
+let itemName = "Ask AI: \(slot)"
+
 print("pointer at \(NSEvent.mouseLocation)")
-let fired = NSPerformService("Ask AI", pb)
-print("NSPerformService -> \(fired)")
+let fired = NSPerformService(itemName, pb)
+print("NSPerformService(\"\(itemName)\") -> \(fired)")
 
 // Give the panel a beat to be ordered front.
 Thread.sleep(forTimeInterval: 1.5)

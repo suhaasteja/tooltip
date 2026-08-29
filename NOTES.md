@@ -198,3 +198,67 @@ so they can never read or clobber a real stored key.
 `com.apple.security.network.client` added and verified present in the signature
 (`make entitlements`). Editing the entitlements file invalidates the signature,
 so `make bundle` re-signs on every build.
+
+---
+
+## Stage 7
+
+### Changing `NSServices` needs a `pbs -flush`, not just a reinstall
+
+After replacing the single `askAI` entry with four slots, rebuilding, re-signing
+and re-installing, `pbs -dump_pboard` still reported the **old** single entry:
+
+```
+default = "Ask AI";
+NSMessage = askAI;
+```
+
+`make bundle && make install && open` was not enough. Only
+
+```sh
+/System/Library/CoreServices/pbs -flush
+```
+
+picked up the new set. This is PLAN.md appendix #4 in practice — worth knowing
+that the symptom is a *stale but plausible* dump rather than an empty one, which
+is easy to misread as "my change didn't compile".
+
+Renaming the slots also invalidated the probe script: `NSPerformService` takes
+the bare menu title, so `"Ask AI"` stopped resolving and returned `false`.
+`scripts/fire-service.swift` now takes `SLOT=Explain|Summarise|Translate|Custom`.
+
+### Keychain works from the sandboxed, ad-hoc-signed app — verified, not assumed
+
+This was the biggest unflagged risk in the plan. A sandboxed app normally gets
+its Keychain access group from a provisioning profile; an **ad-hoc** signature
+has no team identifier, so `SecItemAdd` can fail with `errSecMissingEntitlement`
+(-34018). That would make the Settings API-key field silently useless — and
+because `AppDelegate` originally used `try?`, it would have looked identical to
+"no key stored".
+
+Two changes:
+
+1. The keychain read now logs failure distinctly from "no key found".
+2. A launch-time self-test behind `ASKAI_KEYCHAIN_SELFTEST=1` round-trips a
+   throwaway secret.
+
+Result, from inside the installed sandboxed bundle:
+
+```
+keychain selftest: write+read=true delete=true
+```
+
+So `KeychainStore` is sound here and the Cloudflare-Worker fallback in PLAN.md
+Stage 5 is not needed on this machine. It remains the right answer if this app
+is ever distributed — an embedded key is still extractable.
+
+### Four slots verified end to end
+
+All four appear in `pbs` and each dispatches to its own selector:
+
+```
+Ask AI: Explain   -> true    slot=1
+Ask AI: Summarise -> true    slot=2
+Ask AI: Translate -> true    slot=3
+Ask AI: Custom    -> true    slot=4
+```
