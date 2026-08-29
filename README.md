@@ -128,6 +128,20 @@ table I did not observe.
 
 ---
 
+## Letting an agent set it up
+
+`skills/askai-setup/SKILL.md` is a Claude Code skill covering install, provider
+choice, shortcut binding and troubleshooting. Install it with:
+
+```sh
+mkdir -p ~/.claude/skills/askai-setup
+cp skills/askai-setup/SKILL.md ~/.claude/skills/askai-setup/
+```
+
+Then, from this repo, ask your agent to "set up AskAI". It is explicit about the
+three things it cannot do for you: the API key, the keyboard shortcut, and the
+per-app coverage check.
+
 ## Development
 
 ```sh
