@@ -6,22 +6,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let serviceProvider = ServiceProvider()
     let resultPanel = ResultPanel()
 
+    private let keychain = KeychainStore()
+    private var orchestrator: AskOrchestrator?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         installStatusItem()
         installServicesProvider()
+        resultPanel.onRetry = { [weak self] selection in
+            self?.ask(selection: selection)
+        }
         Log.app.notice("AskAI launched (core \(AskAICore.version, privacy: .public))")
     }
 
+    // MARK: - LLM wiring
+
+    /// Built lazily so a key added in Settings takes effect without relaunching,
+    /// and cached so a second invocation can cancel the first one's request.
+    private func makeOrchestrator() -> AskOrchestrator {
+        let client: LLMClient
+        if MockLLMClient.isEnabled() {
+            Log.llm.notice(
+                "using MockLLMClient (\(MockLLMClient.environmentKey, privacy: .public)=1)")
+            client = MockLLMClient()
+        } else {
+            let key = try? keychain.read()
+            if key == nil { Log.llm.notice("no API key in keychain") }
+            client = AnthropicClient(apiKey: key)
+        }
+        return AskOrchestrator(client: client, machine: resultPanel.machine)
+    }
+
+    private func ask(selection: String) {
+        let orchestrator = self.orchestrator ?? makeOrchestrator()
+        self.orchestrator = orchestrator
+        Log.llm.notice("asking, chars=\(selection.count, privacy: .public)")
+        orchestrator.ask(selection: selection)
+    }
+
+    /// Discards the cached orchestrator so the next ask picks up new settings.
+    func invalidateOrchestrator() {
+        orchestrator = nil
+    }
+
+    // MARK: - Services
+
     private func installServicesProvider() {
         serviceProvider.onSelection = { [weak self] selection in
-            self?.handle(selection: selection)
+            guard let self else { return }
+            self.resultPanel.show()
+            self.ask(selection: selection.text)
         }
         serviceProvider.onEmptySelection = { [weak self] in
             guard let self else { return }
             self.resultPanel.machine.showEmptySelection()
             self.resultPanel.show()
-            self.resultPanel.resizeToFit()
         }
 
         // Held as a stored property: `servicesProvider` is an unowned reference,
@@ -33,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSUpdateDynamicServices()
         Log.app.notice("services provider registered")
     }
+
+    // MARK: - Status item
 
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -51,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ","
         ).target = self
         menu.addItem(.separator())
-        // Temporary, for Stage 3 manual verification. Removed in Stage 8.
+        // Temporary, for manual verification. Removed in Stage 8.
         menu.addItem(
             withTitle: "Show test panel",
             action: #selector(showTestPanel),
@@ -68,39 +109,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
-    /// Stage 4: show the selection verbatim. Stage 6 replaces the body with a
-    /// real LLM round-trip.
-    private func handle(selection: Selection) {
-        let id = resultPanel.machine.startLoading(selection: selection.text)
-        resultPanel.show()
-        resultPanel.resizeToFit()
-
-        resultPanel.machine.finish(requestID: id, answer: selection.text)
-        resultPanel.resizeToFit()
-    }
-
     @objc private func openSettings() {
         // Stage 7.
         Log.app.notice("settings requested")
     }
 
     @objc private func showTestPanel() {
-        let sample = "Placeholder selection — the quick brown fox jumps over the lazy dog."
-        let id = resultPanel.machine.startLoading(selection: sample)
         resultPanel.show()
-        // Fake a reply so the loading -> success transition is observable.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            guard let self else { return }
-            self.resultPanel.machine.finish(
-                requestID: id,
-                answer: """
-                    This is placeholder panel content. It should appear at the \
-                    pointer, float above other apps, leave the frontmost app \
-                    active, and dismiss on Escape or a click outside.
-                    """
-            )
-            self.resultPanel.resizeToFit()
-        }
+        ask(selection: "The mitochondria is the powerhouse of the cell.")
     }
 
     @objc private func quit() {

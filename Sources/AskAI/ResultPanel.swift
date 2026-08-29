@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 import AskAICore
 
 /// Borderless, non-activating floating panel shown at the pointer.
@@ -23,9 +24,19 @@ final class ResultPanel: NSObject {
     /// The state machine driving the panel. Callers mutate this.
     var machine: PanelViewModel { model.machine }
 
+    private var stateObserver: AnyCancellable?
+
     override init() {
         super.init()
         model.onDismiss = { [weak self] in self?.hide() }
+
+        // Grow/shrink with the content: loading -> answer changes the height,
+        // and later streaming changes it on every delta. Deferred by one
+        // runloop turn so SwiftUI has laid out the new content before the
+        // fitting size is measured.
+        stateObserver = model.$state
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.resizeToFit() }
     }
 
     // MARK: - Presentation
