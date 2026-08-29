@@ -1,4 +1,5 @@
 import AppKit
+import AskAICore
 
 /// Receives Services-menu invocations from other applications.
 ///
@@ -12,21 +13,50 @@ import AppKit
 /// prompt slot added in Stage 7 becomes another `@objc` method on this class
 /// rather than another provider.
 final class ServiceProvider: NSObject {
+
+    /// Invoked with the cleaned selection. Set by `AppDelegate`.
+    var onSelection: ((Selection) -> Void)?
+    /// Invoked when the pasteboard carried nothing usable.
+    var onEmptySelection: (() -> Void)?
+
     @objc func askAI(
         _ pboard: NSPasteboard,
         userData: String?,
         error: AutoreleasingUnsafeMutablePointer<NSString?>
     ) {
-        // Stage 2 is a mechanism proof only: read the string and log it.
-        // Extraction, the panel, and the LLM arrive in stages 3-6.
+        handle(pboard: pboard, slot: 1)
+    }
+
+    /// Shared body for every prompt slot.
+    ///
+    /// Returns immediately: the service handler must not block, so the LLM call
+    /// it eventually triggers is dispatched asynchronously (Stage 6). The
+    /// pointer position is sampled *here*, before any hop, because by the time
+    /// an async continuation runs the cursor may have moved.
+    private func handle(pboard: NSPasteboard, slot: Int) {
         let raw = pboard.string(forType: .string)
+        guard let selection = SelectionExtractor.extract(from: raw) else {
+            Log.service.notice("slot=\(slot, privacy: .public) empty selection")
+            dispatchToMain { self.onEmptySelection?() }
+            return
+        }
+
         Log.service.notice(
             """
-            askAI fired \
-            userData=\(userData ?? "<nil>", privacy: .public) \
-            chars=\(raw?.count ?? -1, privacy: .public) \
-            text=\(raw ?? "<nil>", privacy: .public)
+            slot=\(slot, privacy: .public) selection \
+            chars=\(selection.text.count, privacy: .public) \
+            truncated=\(selection.wasTruncated, privacy: .public)
             """
         )
+        dispatchToMain { self.onSelection?(selection) }
+    }
+
+    /// Services invocations arrive on a non-main thread; all UI work must hop.
+    private func dispatchToMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 }

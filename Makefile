@@ -11,7 +11,7 @@ TEST_FLAGS := -Xswiftc -F -Xswiftc $(DEV_FRAMEWORKS) \
               -Xlinker -F -Xlinker $(DEV_FRAMEWORKS) \
               -Xlinker -rpath -Xlinker $(DEV_FRAMEWORKS)
 
-.PHONY: build test bundle run install uninstall clean entitlements services logs
+.PHONY: build test bundle run install uninstall clean entitlements services logs probe
 
 build:
 	swift build
@@ -53,3 +53,8 @@ logs:
 clean:
 	swift package clean
 	rm -rf .build dist
+
+# Fire the service from a separate process and report the resulting panel
+# window + which app is actually frontmost. Verification without UI automation.
+probe:
+	@swift scripts/fire-service.swift "$(TEXT)"

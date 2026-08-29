@@ -14,6 +14,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func installServicesProvider() {
+        serviceProvider.onSelection = { [weak self] selection in
+            self?.handle(selection: selection)
+        }
+        serviceProvider.onEmptySelection = { [weak self] in
+            guard let self else { return }
+            self.resultPanel.machine.showEmptySelection()
+            self.resultPanel.show()
+            self.resultPanel.resizeToFit()
+        }
+
         // Held as a stored property: `servicesProvider` is an unowned reference,
         // so a temporary here would be deallocated and invocations would go
         // nowhere.
@@ -56,6 +66,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         item.menu = menu
         statusItem = item
+    }
+
+    /// Stage 4: show the selection verbatim. Stage 6 replaces the body with a
+    /// real LLM round-trip.
+    private func handle(selection: Selection) {
+        let id = resultPanel.machine.startLoading(selection: selection.text)
+        resultPanel.show()
+        resultPanel.resizeToFit()
+
+        resultPanel.machine.finish(requestID: id, answer: selection.text)
+        resultPanel.resizeToFit()
     }
 
     @objc private func openSettings() {
