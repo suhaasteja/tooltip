@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let serviceProvider = ServiceProvider()
     let resultPanel = ResultPanel()
+    private let pointerTracker = PointerTracker()
 
     private let keychain = KeychainStore()
     private let settings = SettingsStore()
@@ -15,8 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        installMainMenu()
         installStatusItem()
         installServicesProvider()
+        pointerTracker.start()
         resultPanel.onRetry = { [weak self] selection in
             guard let self else { return }
             self.ask(selection: selection, slot: self.lastSlot)
@@ -117,13 +120,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installServicesProvider() {
         serviceProvider.onSelection = { [weak self] selection, slot in
             guard let self else { return }
-            self.resultPanel.show()
+            let anchor = self.pointerTracker.anchor
+            Log.panel.debug(
+                """
+                anchor y=\(Int(anchor.y), privacy: .public) \
+                pointer y=\(Int(NSEvent.mouseLocation.y), privacy: .public)
+                """)
+            self.resultPanel.show(at: anchor)
             self.ask(selection: selection.text, slot: slot)
         }
         serviceProvider.onEmptySelection = { [weak self] in
             guard let self else { return }
             self.resultPanel.machine.showEmptySelection()
-            self.resultPanel.show()
+            self.resultPanel.show(at: self.pointerTracker.anchor)
         }
 
         // Held as a stored property: `servicesProvider` is an unowned reference,
@@ -134,6 +143,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // picked up without logging out.
         NSUpdateDynamicServices()
         Log.app.notice("services provider registered")
+    }
+
+    // MARK: - Main menu
+
+    /// Installs a minimal main menu.
+    ///
+    /// Without this, an `LSUIElement` app has no menu bar at all, so ⌘V / ⌘C /
+    /// ⌘X / ⌘A are never dispatched — which is why pasting an API key into the
+    /// Settings window silently did nothing. The items target `nil` so they
+    /// travel the responder chain to whichever text field is focused.
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ","
+        ).target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(
+            withTitle: "Quit AskAI",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q")
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+
+        let editItem = NSMenuItem()
+        // The title must be exactly "Edit" for AppKit to treat it as the
+        // standard editing menu.
+        let editMenu = NSMenu(title: "Edit")
+        // String selectors rather than #selector: `copy` collides with
+        // NSObject.copy() and will not compile cleanly.
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: Selector(("cut:")), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: Selector(("copy:")), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: Selector(("paste:")), keyEquivalent: "v")
+        editMenu.addItem(
+            withTitle: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     // MARK: - Status item

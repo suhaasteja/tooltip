@@ -92,3 +92,46 @@ struct PanelPlacementTests {
         #expect(o.y == mainScreen.minY + PanelPlacement.screenMargin)
     }
 }
+
+@Suite("Panel anchoring")
+struct PanelAnchorTests {
+    private let text = CGPoint(x: 400, y: 700)     // where the user right-clicked
+    private let menu = CGPoint(x: 460, y: 520)     // where the pointer ended up
+
+    @Test("a recent context-click wins over the live pointer")
+    func prefersRecentClick() {
+        // The right-click → Services → Ask AI path: the pointer is down in the
+        // menu, but the selection is where the click happened.
+        let point = PanelAnchor.anchor(
+            lastRightClick: (point: text, age: 2), pointer: menu)
+        #expect(point == text)
+    }
+
+    @Test("with no click at all, the live pointer is used")
+    func fallsBackToPointer() {
+        #expect(PanelAnchor.anchor(lastRightClick: nil, pointer: menu) == menu)
+    }
+
+    @Test("a stale click is ignored")
+    func ignoresStaleClick() {
+        let point = PanelAnchor.anchor(
+            lastRightClick: (point: text, age: PanelAnchor.clickRecencyWindow + 1),
+            pointer: menu)
+        #expect(point == menu)
+    }
+
+    @Test("a click exactly at the window edge still counts")
+    func boundaryIsInclusive() {
+        let point = PanelAnchor.anchor(
+            lastRightClick: (point: text, age: PanelAnchor.clickRecencyWindow),
+            pointer: menu)
+        #expect(point == text)
+    }
+
+    @Test("a negative age (clock skew) is not trusted")
+    func rejectsNegativeAge() {
+        let point = PanelAnchor.anchor(
+            lastRightClick: (point: text, age: -5), pointer: menu)
+        #expect(point == menu)
+    }
+}

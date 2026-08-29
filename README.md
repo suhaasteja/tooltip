@@ -73,9 +73,27 @@ there is a Copy button.
 
 ### Keyboard shortcuts
 
-System Settings → Keyboard → Keyboard Shortcuts → Services, or use the menu bar
-item's **Open Services Shortcuts…** entry. Each of the four slots can be bound
-separately.
+There is **no single global hotkey to toggle the app** — a Services-based app
+cannot register one without the Accessibility permission (that is the Stage 9
+tradeoff in PLAN.md, deliberately not taken). What you get instead is a
+per-slot shortcut, which needs no permission:
+
+1. Menu bar ✨ → **Open Services Shortcuts…**
+   (or System Settings → Keyboard → Keyboard Shortcuts → Services)
+2. Find the four **Ask AI** entries under *Text*
+3. Double-click the right-hand column and press your combination
+
+Bind one per slot — e.g. ⌥⌘E for Explain. Select text, press it, done. The
+entries only appear in that list once the app has been launched from
+`/Applications` at least once.
+
+### Where the panel appears
+
+At the point where you **opened the context menu**, not where the pointer ends
+up. Going right-click → Services → Ask AI drags the cursor well below your
+selection, so anchoring to the live pointer would put the panel over the menu.
+A context click within the last 30 seconds wins; otherwise (keyboard-shortcut
+path) the live pointer is used.
 
 ---
 

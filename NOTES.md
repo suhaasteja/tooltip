@@ -350,3 +350,42 @@ server. Sandbox + ATS + streaming all confirmed working over loopback.
 only orders tests *within* a suite, so once a second client suite existed, the
 two suites raced and stubs bled across them (a 401 test seeing a 503 response).
 `make test` now passes `--no-parallel`. 107 tests, still under a second.
+
+---
+
+## Panel anchoring, and paste in an LSUIElement app
+
+Two defects found in real use, both stemming from the app having no normal
+window/menu presence.
+
+### The panel appeared over the Services menu, not the selection
+
+`NSEvent.mouseLocation` read inside the service handler is the *menu item* the
+user just clicked — right-click → Services → Ask AI moves the cursor a long way
+down from the selected text. Anchoring there put the panel in the wrong place
+every time on the most common invocation path.
+
+Fix: a global monitor records where the user last opened a context menu, and
+`PanelAnchor` prefers that over the live pointer when it is recent (30s).
+Keyboard-shortcut invocations have no recent click and fall back to the pointer.
+Mouse-only global monitors need no Accessibility permission, so this stays
+sandbox-friendly.
+
+Verified with logs from the installed bundle — right-click at y=700, pointer
+moved to y=450, result `anchor y=700 pointer y=450` and the panel drawn at
+y≈688.
+
+Anchoring to the *text* itself would need the Accessibility API to read the
+focused element's frame. Not worth a TCC prompt for this improvement.
+
+### ⌘V did nothing in Settings
+
+An `LSUIElement` app has **no main menu**, and AppKit dispatches the standard
+editing key equivalents through menu items. With no Edit menu, `cut:`/`copy:`/
+`paste:`/`selectAll:` were never sent, so the API-key field could not be pasted
+into — the single most important field in the app.
+
+Fix: `installMainMenu()` builds a minimal App + Edit menu with `target: nil`
+items so they travel the responder chain to the focused field. Note the menu
+title must be exactly `"Edit"`, and the actions must be string selectors —
+`#selector(NSText.copy(_:))` collides with `NSObject.copy()`.
