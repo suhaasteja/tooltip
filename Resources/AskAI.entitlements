@@ -4,5 +4,10 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Outbound only: the app talks to the Messages API (or a key proxy).
+	     Added in Stage 5; editing this file invalidates the signature, so
+	     `make bundle` must re-sign before any network test. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

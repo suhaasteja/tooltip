@@ -140,3 +140,61 @@ If the item is missing in an app that should have it, that app can be asked why:
 defaults write <that-app-bundle-id> NSDebugServices com.yourname.AskAI
 # relaunch it, reproduce, then check its log; unset with `defaults delete`
 ```
+
+---
+
+## Stage 5
+
+### `_Testing_Foundation.framework` in CLT is incomplete — overlays disabled
+
+Adding `import Foundation` next to `import Testing` broke the build:
+
+```
+error: no such module '_Testing_Foundation'
+```
+
+`Testing.framework/Modules/Testing.swiftcrossimport/Foundation.swiftoverlay`
+declares a cross-import overlay that Swift auto-loads whenever both modules are
+imported. The CLT copy of `_Testing_Foundation.framework` ships the **binary**
+(`Versions/A/_Testing_Foundation`) but **no `Modules` directory**, so the
+overlay's `.swiftmodule` does not exist and the import cannot be resolved. That
+is a packaging gap in Command Line Tools, not something the project can fix.
+
+`make test` therefore passes `-Xswiftc -Xfrontend -Xswiftc
+-disable-cross-import-overlays`. Note it must go through `-Xfrontend`: SwiftPM's
+argument parser rejects the bare driver spelling with
+
+```
+Fatal error: 'try!' expression unexpectedly raised an error: unknown argument
+```
+
+Nothing the suite uses lives in that overlay — `@Test`, `#expect`, `#require`
+and `Issue` are all in `Testing` proper. 46 tests pass.
+
+### Model configuration: adaptive thinking at `low` effort, not thinking disabled
+
+The current Opus-tier model rejects `temperature`, `top_p`, `top_k`, and
+`thinking.budget_tokens` with a 400, so the client sends none of them; depth is
+controlled with `output_config.effort` instead. There is a test asserting their
+absence, because reintroducing one would be a silent 400 in production.
+
+Thinking is **on by default** on this model tier, and `max_tokens` caps thinking
+*plus* answer — which is why `max_tokens` is 2048 rather than something tight,
+despite tooltip answers being short.
+
+Turning thinking off entirely would be faster, but is the documented-worse
+option here: with thinking disabled this model tier can leak `<thinking>` tags
+into the visible response. `effort: "low"` with thinking left on gets most of the
+latency win without that failure mode. Both values are configurable.
+
+### Keychain works from the test runner
+
+`swift test` runs unsandboxed, so `SecItemAdd`/`SecItemCopyMatching` against the
+login keychain succeed without a prompt. Tests use a per-run random service name
+so they can never read or clobber a real stored key.
+
+### Network entitlement is now signed in
+
+`com.apple.security.network.client` added and verified present in the signature
+(`make entitlements`). Editing the entitlements file invalidates the signature,
+so `make bundle` re-signs on every build.

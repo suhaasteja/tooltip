@@ -6,8 +6,14 @@ INSTALLED := /Applications/$(APP_NAME).app
 # normally finds Testing.framework via `xcrun --show-sdk-platform-path`, which
 # fails on a Command Line Tools-only install -- so point at it explicitly.
 # This is why you must run `make test`, not a bare `swift test`. See NOTES.md.
+#
+# -disable-cross-import-overlays: CLT ships _Testing_Foundation.framework with
+# its binary but no Modules directory, so the Testing+Foundation cross-import
+# overlay cannot be resolved and any file importing both fails to compile.
+# Nothing this suite uses lives in that overlay.
 DEV_FRAMEWORKS := $(shell xcode-select -p)/Library/Developer/Frameworks
 TEST_FLAGS := -Xswiftc -F -Xswiftc $(DEV_FRAMEWORKS) \
+              -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays \
               -Xlinker -F -Xlinker $(DEV_FRAMEWORKS) \
               -Xlinker -rpath -Xlinker $(DEV_FRAMEWORKS)
 
