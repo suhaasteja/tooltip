@@ -53,6 +53,9 @@ public final class SettingsStore {
 
     private enum Key {
         static func template(_ slot: Int) -> String { "prompt.template.\(slot)" }
+        static let provider = "llm.provider"
+        static let baseURL = "llm.baseURL"
+        static let presetID = "llm.presetID"
         static let model = "llm.model"
         static let maxTokens = "llm.maxTokens"
         static let effort = "llm.effort"
@@ -99,8 +102,61 @@ public final class SettingsStore {
 
     // MARK: Model
 
+    /// Which wire protocol to speak. Defaults to Anthropic for existing installs.
+    public var provider: LLMProvider {
+        get {
+            guard let raw = defaults.string(forKey: Key.provider),
+                  let provider = LLMProvider(rawValue: raw) else { return .anthropic }
+            return provider
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.provider) }
+    }
+
+    /// Endpoint URL. Falls back to the provider default if unset or unparseable,
+    /// so a mistyped URL degrades to "works against the default" rather than
+    /// throwing on every request.
+    public var baseURL: URL {
+        get {
+            if let string = defaults.string(forKey: Key.baseURL),
+               let url = URL(string: string.trimmingCharacters(in: .whitespaces)),
+               url.scheme != nil {
+                return url
+            }
+            return LLMConfiguration(provider: provider).baseURL
+        }
+        set { defaults.set(newValue.absoluteString, forKey: Key.baseURL) }
+    }
+
+    /// Raw string as typed, so the Settings field can show invalid input back
+    /// to the user instead of silently replacing it.
+    public var baseURLString: String {
+        get {
+            defaults.string(forKey: Key.baseURL)
+                ?? LLMConfiguration(provider: provider).baseURL.absoluteString
+        }
+        set { defaults.set(newValue, forKey: Key.baseURL) }
+    }
+
+    /// Which preset the user last picked, for the Settings UI only.
+    public var presetID: String {
+        get { defaults.string(forKey: Key.presetID) ?? "anthropic" }
+        set { defaults.set(newValue, forKey: Key.presetID) }
+    }
+
+    /// Applies a preset's provider, URL and sample model in one step.
+    public func apply(preset: ProviderPreset) {
+        presetID = preset.id
+        provider = preset.provider
+        baseURLString = preset.baseURL
+        model = preset.sampleModel
+    }
+
     public var model: String {
-        get { defaults.string(forKey: Key.model) ?? LLMConfiguration.defaultModel }
+        get {
+            if let stored = defaults.string(forKey: Key.model), !stored.isEmpty { return stored }
+            return ProviderPreset.preset(id: presetID)?.sampleModel
+                ?? LLMConfiguration.defaultModel
+        }
         set { defaults.set(newValue, forKey: Key.model) }
     }
 
@@ -133,6 +189,12 @@ public final class SettingsStore {
 
     /// Current settings as an `LLMConfiguration`.
     public func configuration() -> LLMConfiguration {
-        LLMConfiguration(model: model, maxTokens: maxTokens, effort: effort)
+        LLMConfiguration(
+            provider: provider,
+            baseURL: baseURL,
+            model: model,
+            maxTokens: maxTokens,
+            effort: effort
+        )
     }
 }

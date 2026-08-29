@@ -30,7 +30,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Text("Stored in the login Keychain, never in preferences.")
+                Text(model.keyIsOptional
+                     ? "Stored in the login Keychain. Local servers usually need no key — "
+                       + "leave this empty."
+                     : "Stored in the login Keychain, never in preferences.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -40,12 +43,20 @@ struct SettingsView: View {
             Divider().padding(.vertical, 6)
 
             Section {
+                Picker("Provider", selection: $model.presetID) {
+                    ForEach(ProviderPreset.all) { Text($0.name).tag($0.id) }
+                }
+                TextField("Base URL", text: $model.baseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
                 TextField("Model", text: $model.modelID)
                     .textFieldStyle(.roundedBorder)
-                Picker("Effort", selection: $model.effort) {
-                    ForEach(SettingsStore.effortLevels, id: \.self) { Text($0).tag($0) }
+                if model.showsEffort {
+                    Picker("Effort", selection: $model.effort) {
+                        ForEach(SettingsStore.effortLevels, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
                 HStack {
                     Text("Max tokens")
                     Spacer()

@@ -1,24 +1,28 @@
 import Foundation
 
-/// Minimal Anthropic Messages API client.
+/// Client for the OpenAI `/chat/completions` shape.
 ///
-/// Notable omissions, all deliberate for the current model tier: no
-/// `temperature`, no `top_p`, no `top_k`, and no `thinking.budget_tokens` —
-/// every one of those is rejected with a 400 on Opus-5-tier models. Depth is
-/// controlled with `output_config.effort` instead.
-public final class AnthropicClient: LLMClient, @unchecked Sendable {
-
-    public static let apiVersion = "2023-06-01"
+/// Works against LiteLLM proxy, Ollama, LM Studio, vLLM, OpenRouter, Gemini's
+/// compatibility endpoint, and OpenAI itself. Differences from
+/// `AnthropicClient` that matter:
+///
+/// - auth is `Authorization: Bearer …`, not `x-api-key`, and there is no
+///   version header;
+/// - the system prompt is a `role: "system"` entry in `messages`, not a
+///   top-level field;
+/// - the reply is a single string at `choices[0].message.content`, not an
+///   array of typed blocks;
+/// - **an API key is optional** — local servers routinely accept none, so an
+///   empty key is not an error here (it is on Anthropic).
+public final class OpenAICompatibleClient: LLMClient, @unchecked Sendable {
 
     private let apiKey: String?
     private let configuration: LLMConfiguration
     private let session: URLSession
 
-    /// - Parameter session: injected so tests can supply a stubbed
-    ///   `URLProtocol` and exercise every branch offline.
     public init(
         apiKey: String?,
-        configuration: LLMConfiguration = LLMConfiguration(),
+        configuration: LLMConfiguration,
         session: URLSession = .shared
     ) {
         self.apiKey = apiKey
@@ -28,28 +32,30 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
 
     // MARK: - Request
 
-    /// Builds the POST. Exposed for tests so header/URL/body assertions do not
-    /// need a live request.
     public func makeRequest(
         system: String?, prompt: String, streaming: Bool = false
     ) throws -> URLRequest {
-        guard let apiKey, !apiKey.isEmpty else { throw LLMError.missingAPIKey }
-
         var request = URLRequest(url: configuration.baseURL)
         request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
+
+        // Deliberately tolerant: a local Ollama or LM Studio server needs no
+        // credential, so only send the header when there is something to send.
+        if let apiKey, !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        var messages: [[String: Any]] = []
+        if let system, !system.isEmpty {
+            messages.append(["role": "system", "content": system])
+        }
+        messages.append(["role": "user", "content": prompt])
 
         var body: [String: Any] = [
             "model": configuration.model,
             "max_tokens": configuration.maxTokens,
-            "output_config": ["effort": configuration.effort],
-            "messages": [["role": "user", "content": prompt]],
+            "messages": messages,
         ]
-        if let system, !system.isEmpty {
-            body["system"] = system
-        }
         if streaming {
             body["stream"] = true
         }
@@ -72,7 +78,7 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
         } catch is CancellationError {
             throw LLMError.cancelled
         } catch {
-            throw LLMError.network(error.localizedDescription)
+            throw Self.mapTransport(error)
         }
 
         try Task.checkCancellation()
@@ -100,12 +106,11 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
         } catch let error as URLError where error.code == .cancelled {
             throw LLMError.cancelled
         } catch {
-            throw LLMError.network(error.localizedDescription)
+            throw Self.mapTransport(error)
         }
 
         guard let http = response as? HTTPURLResponse else { throw LLMError.decoding }
         guard (200..<300).contains(http.statusCode) else {
-            // The error body is not SSE; drain it so the message survives.
             var body = Data()
             for try await byte in bytes { body.append(byte) }
             throw Self.mapFailure(status: http.statusCode, body: body)
@@ -127,21 +132,19 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
         } catch let error as LLMError {
             throw error
         } catch {
-            // A mid-stream transport drop with usable text is better surfaced
-            // as a truncated answer than as a total failure.
+            // Partial text beats losing the answer entirely.
             guard full.isEmpty else { return full }
-            throw LLMError.network(error.localizedDescription)
+            throw Self.mapTransport(error)
         }
 
         guard !full.isEmpty else { throw LLMError.decoding }
         return full
     }
 
-    /// Extracts the text fragment from one SSE line, or `nil` if the line
-    /// carries no text (event names, pings, `[DONE]`, thinking deltas, blanks).
+    /// Extracts the text fragment from one SSE line, or `nil` if it carries no
+    /// answer text.
     ///
-    /// Pure and `internal` so the wire format is unit-testable without a
-    /// network or a live stream.
+    /// Pure and `internal` so the wire format is unit-testable offline.
     static func textDelta(fromSSELine line: String) -> String? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("data:") else { return nil }
@@ -152,57 +155,75 @@ public final class AnthropicClient: LLMClient, @unchecked Sendable {
 
         guard
             let data = payload.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let choices = object["choices"] as? [[String: Any]],
+            let delta = choices.first?["delta"] as? [String: Any]
         else { return nil }
 
-        // Only text deltas contribute. `thinking_delta` is explicitly ignored:
-        // reasoning must never be rendered as the answer.
-        guard object["type"] as? String == "content_block_delta",
-              let delta = object["delta"] as? [String: Any],
-              delta["type"] as? String == "text_delta",
-              let text = delta["text"] as? String
-        else { return nil }
-
+        // `reasoning_content` (DeepSeek-R1 and friends, passed through by
+        // LiteLLM) is skipped for the same reason Anthropic's thinking_delta
+        // is: reasoning must never be rendered as the answer.
+        guard let text = delta["content"] as? String, !text.isEmpty else { return nil }
         return text
     }
 
     // MARK: - Response handling
 
-    /// Concatenates every `type == "text"` block.
-    ///
-    /// Blocks of other types (notably `thinking`, which this model tier emits
-    /// by default) are skipped rather than treated as an error.
     static func parseText(from data: Data) throws -> String {
         guard
             let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let content = root["content"] as? [[String: Any]]
+            let choices = root["choices"] as? [[String: Any]],
+            let message = choices.first?["message"] as? [String: Any],
+            let text = message["content"] as? String,
+            !text.isEmpty
         else { throw LLMError.decoding }
-
-        let text = content
-            .filter { $0["type"] as? String == "text" }
-            .compactMap { $0["text"] as? String }
-            .joined()
-
-        guard !text.isEmpty else { throw LLMError.decoding }
         return text
     }
 
     static func mapFailure(status: Int, body: Data) -> LLMError {
         switch status {
         case 401, 403: return .unauthorized
+        case 404:
+            // Overwhelmingly a wrong base URL or an unpulled local model, not a
+            // missing remote resource — say so instead of "HTTP 404".
+            let detail = apiErrorMessage(from: body)
+            return .badRequest(detail.isEmpty
+                ? "Not found. Check the base URL and that the model is available."
+                : detail)
         case 429: return .rateLimited
         case 500...599: return .server(status)
         default: return .badRequest(apiErrorMessage(from: body))
         }
     }
 
-    /// Pulls `error.message` out of an API error envelope, if present.
+    /// Local servers are frequently just not running; that deserves a better
+    /// message than the raw URLError text.
+    static func mapTransport(_ error: Error) -> LLMError {
+        if let urlError = error as? URLError,
+           urlError.code == .cannotConnectToHost || urlError.code == .cannotFindHost {
+            return .network("Could not reach the server. Is it running?")
+        }
+        return .network(error.localizedDescription)
+    }
+
+    /// Pulls `error.message` out of the response, tolerating the several shapes
+    /// in the wild: OpenAI's `{"error":{"message":…}}`, a bare
+    /// `{"error":"…"}` (Ollama), and `{"detail":…}` (LiteLLM/FastAPI).
     private static func apiErrorMessage(from data: Data) -> String {
         guard
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let error = root["error"] as? [String: Any],
-            let message = error["message"] as? String
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return "" }
-        return message
+
+        if let error = root["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            return message
+        }
+        if let error = root["error"] as? String { return error }
+        if let detail = root["detail"] as? String { return detail }
+        if let detail = root["detail"] as? [String: Any],
+           let message = detail["message"] as? String {
+            return message
+        }
+        return ""
     }
 }

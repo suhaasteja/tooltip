@@ -12,7 +12,8 @@ INSTALLED := /Applications/$(APP_NAME).app
 # overlay cannot be resolved and any file importing both fails to compile.
 # Nothing this suite uses lives in that overlay.
 DEV_FRAMEWORKS := $(shell xcode-select -p)/Library/Developer/Frameworks
-TEST_FLAGS := -Xswiftc -F -Xswiftc $(DEV_FRAMEWORKS) \
+TEST_FLAGS := --no-parallel \
+              -Xswiftc -F -Xswiftc $(DEV_FRAMEWORKS) \
               -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays \
               -Xlinker -F -Xlinker $(DEV_FRAMEWORKS) \
               -Xlinker -rpath -Xlinker $(DEV_FRAMEWORKS)

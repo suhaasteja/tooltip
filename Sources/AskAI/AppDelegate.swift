@@ -73,13 +73,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             var key: String?
             do {
                 key = try keychain.read()
-                Log.llm.notice("keychain read ok, hasKey=\(key != nil, privacy: .public)")
+                Log.llm.notice(
+                    """
+                    keychain read ok hasKey=\(key != nil, privacy: .public) \
+                    provider=\(self.settings.provider.rawValue, privacy: .public) \
+                    model=\(self.settings.model, privacy: .public)
+                    """
+                )
             } catch {
                 Log.llm.error(
                     "keychain read FAILED: \(String(describing: error), privacy: .public)")
                 key = nil
             }
-            client = AnthropicClient(apiKey: key, configuration: settings.configuration())
+            client = LLMClientFactory.make(
+                configuration: settings.configuration(), apiKey: key)
         }
         return AskOrchestrator(
             client: client,

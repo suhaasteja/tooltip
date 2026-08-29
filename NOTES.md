@@ -298,3 +298,55 @@ MANUAL-QA.md rather than being quietly claimed.
 
 The Stage 3 "Show test panel" item is gone, as the plan required. `make probe`
 covers the same ground better, from outside the app.
+
+---
+
+## Provider support: LiteLLM / Gemini / local models
+
+Added `OpenAICompatibleClient` alongside `AnthropicClient`, both behind the
+existing `LLMClient` protocol. One client covers LiteLLM proxy, Ollama, LM
+Studio, vLLM, OpenRouter, Gemini's compatibility endpoint and OpenAI itself,
+because they all speak `/chat/completions`. "Support Gemini" is a base-URL
+change, not a new client.
+
+Wire differences from Anthropic that the code has to get right:
+
+| | Anthropic | OpenAI-compatible |
+|---|---|---|
+| Auth | `x-api-key` + `anthropic-version` | `Authorization: Bearer` |
+| System prompt | top-level `system` | `role: "system"` in `messages` |
+| Reply | `content[]` typed blocks | `choices[0].message.content` |
+| Stream delta | `content_block_delta` | `choices[0].delta.content` |
+| Effort | `output_config.effort` | not supported (hidden in Settings) |
+| API key | required | **optional** — local servers accept none |
+
+`reasoning_content` deltas (DeepSeek-R1 style, passed through by LiteLLM) are
+filtered out for the same reason Anthropic's `thinking_delta` is.
+
+### Two things local servers needed that hosted APIs did not
+
+1. **ATS.** Local servers are plain HTTP on localhost, which App Transport
+   Security blocks by default. Added `NSAllowsLocalNetworking` — this permits
+   cleartext to loopback and `.local` only, and unlike `NSAllowsArbitraryLoads`
+   does not weaken ATS for the public internet.
+2. **An optional API key.** `AnthropicClient` throws `.missingAPIKey` on an
+   empty key; doing that here would make Ollama unusable. The header is simply
+   omitted when there is no key.
+
+Error mapping also reads three different envelope shapes seen in the wild:
+OpenAI/LiteLLM `{"error":{"message":…}}`, Ollama `{"error":"…"}`, and
+FastAPI/LiteLLM-proxy `{"detail":…}`. A 404 says "check the base URL and that
+the model is available" rather than "HTTP 404", and a refused connection says
+"Is it running?" — both are the overwhelmingly likely causes locally.
+
+**Verified against a real local server**, not just stubs: a fake
+OpenAI-compatible server on `127.0.0.1:4000`, the installed sandboxed bundle
+pointed at it, and a genuine Services invocation produced a request at the
+server. Sandbox + ATS + streaming all confirmed working over loopback.
+
+### Test suite is now `--no-parallel`
+
+`StubURLProtocol` is process-global mutable state. swift-testing's `.serialized`
+only orders tests *within* a suite, so once a second client suite existed, the
+two suites raced and stubs bled across them (a 401 test seeing a 503 response).
+`make test` now passes `--no-parallel`. 107 tests, still under a second.

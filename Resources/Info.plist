@@ -32,6 +32,15 @@
 	     askAIN:userData:error: on ServiceProvider. Adding a slot means editing
 	     this file, adding the matching @objc method, re-signing, and
 	     re-installing. -->
+	<!-- Local model servers (LiteLLM proxy, Ollama, LM Studio) listen on plain
+	     HTTP at localhost. NSAllowsLocalNetworking permits cleartext to
+	     loopback and .local only; it does NOT weaken ATS for the public
+	     internet the way NSAllowsArbitraryLoads would. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSServices</key>
 	<array>
 		<dict>
