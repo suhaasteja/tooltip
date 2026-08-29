@@ -3,11 +3,24 @@ import AskAICore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
+    private let serviceProvider = ServiceProvider()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         installStatusItem()
+        installServicesProvider()
         Log.app.notice("AskAI launched (core \(AskAICore.version, privacy: .public))")
+    }
+
+    private func installServicesProvider() {
+        // Held as a stored property: `servicesProvider` is an unowned reference,
+        // so a temporary here would be deallocated and invocations would go
+        // nowhere.
+        NSApp.servicesProvider = serviceProvider
+        // Forces an immediate rescan so a freshly installed/re-signed bundle is
+        // picked up without logging out.
+        NSUpdateDynamicServices()
+        Log.app.notice("services provider registered")
     }
 
     private func installStatusItem() {

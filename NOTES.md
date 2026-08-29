@@ -68,3 +68,75 @@ AskAI: [com.yourname.AskAI:app] AskAI launched (core 0.1.0)
 Left as the plan's placeholder `com.yourname.AskAI`. This string is load-bearing
 for `pbs`, `tccutil`, and Launch Services — changing it later means re-installing
 and flushing the Services cache.
+
+---
+
+## Stage 2 — GO/NO-GO: **PASSED**
+
+`pbs -dump_pboard` shows the entry with the expected keys:
+
+```
+NSBundleIdentifier = "com.yourname.AskAI";
+NSBundlePath = "/Applications/AskAI.app";
+NSMenuItem = { default = "Ask AI"; };
+NSMessage = askAI;
+NSPortName = AskAI;
+NSRequiredContext = { };
+NSSendTypes = ( NSStringPboardType, "public.utf8-plain-text" );
+```
+
+And an invocation from a *different* process reached the provider selector:
+
+```
+AskAI: [com.yourname.AskAI:service] askAI fired userData= chars=47 \
+  text=The mitochondria is the powerhouse of the cell.
+```
+
+So the bridged selector `askAI:userData:error:` is correct and the pasteboard
+carries the selection. The load-bearing assumption of the whole app holds.
+
+### How the gate was driven: `NSPerformService`, not UI automation
+
+Clicking Services → Ask AI in another app's menu can only be scripted through
+System Events, which needs the Accessibility (TCC) permission. PLAN.md Stage 9
+explicitly warns that granting TCC to a frequently-re-signed, command-line-built
+binary causes permission loops — so triggering that prompt during Stage 2 would
+have risked the exact failure mode the plan says to avoid, to test something
+Stage 2 does not require.
+
+Instead the gate was driven with `NSPerformService(_:_:)` from a separate
+throwaway process. That is the same dispatch path a menu click takes — `pbs`
+registry lookup, port resolution, selector invocation — minus the menu-drawing
+step. It proves the mechanism; it does not prove menu *presentation* in any
+given app.
+
+Quirk worth knowing: the item name is the bare menu title.
+`NSPerformService("Ask AI", pb)` returns `true`;
+`NSPerformService("AskAI/Ask AI", pb)` returns `false`.
+
+### App coverage matrix — NOT yet established, needs a human
+
+PLAN.md asks for a per-app baseline (TextEdit, Safari, Notes, Mail, Terminal).
+That check is inherently manual: whether an app *offers* the item depends on its
+first responder answering `validRequestorForSendType:returnType:`, which cannot
+be inspected from outside the process. I am not recording a matrix I did not
+observe.
+
+**To fill this in**, with AskAI running from `/Applications`, in each app select
+a sentence, then right-click → Services → "Ask AI", and watch:
+
+```sh
+make logs
+```
+
+A line tagged `[com.yourname.AskAI:service]` means that app works. Record the
+results here and in the README before promising "system-wide". Expect gaps:
+Electron apps and some terminal emulators either omit the Services menu or put
+nothing usable on the pasteboard.
+
+If the item is missing in an app that should have it, that app can be asked why:
+
+```sh
+defaults write <that-app-bundle-id> NSDebugServices com.yourname.AskAI
+# relaunch it, reproduce, then check its log; unset with `defaults delete`
+```

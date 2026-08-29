@@ -26,5 +26,29 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<!-- Resolves to the selector askAI:userData:error: on ServiceProvider. -->
+			<key>NSMessage</key>
+			<string>askAI</string>
+			<key>NSPortName</key>
+			<string>AskAI</string>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Ask AI</string>
+			</dict>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+				<string>public.utf8-plain-text</string>
+			</array>
+			<!-- Must be present even when empty, or the service never appears
+			     anywhere, with no error logged. PLAN.md appendix #1. -->
+			<key>NSRequiredContext</key>
+			<dict/>
+		</dict>
+	</array>
 </dict>
 </plist>
