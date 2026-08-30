@@ -710,3 +710,56 @@ cell(1,0) cleared=99%   cell(1,1) cleared=100%  cell(1,2) cleared=99%
 Robust whether or not borders are drawn, so it is the right order regardless of
 prompt tweaks. Grid fidelity itself was good: even cells, one character each,
 none clipped, identity consistent across all six frames.
+
+### PNG vs JPEG was the wrong question
+
+Two documentation sources each named a field for requesting PNG from the image
+API. Both are wrong; the live API rejects them:
+
+```
+generationConfig.imageConfig.imageOutputOptions.mimeType
+  -> 400 Unknown name "imageOutputOptions" at 'generation_config.image_config'
+generationConfig.responseFormat.mimeType
+  -> 400 Unknown name "mimeType" at 'generation_config.response_format'
+```
+
+Format follows the model: `gemini-2.5-flash-image` returns PNG,
+`gemini-3-pro-image-preview` returns JPEG.
+
+But PNG does not give a cleaner background. Measured on the top margin:
+
+```
+JPEG (pro)    pure-255 white = 77%   distinct near-white values = 7
+PNG  (flash)  pure-255 white = 29%   distinct near-white values = 10
+```
+
+The PNG model tints its background, so it is *less* pure than the lossy one.
+Whatever the format, "white" cannot be assumed. Pick the model on image quality
+instead — and on that, the pro model produced a genuinely varied walk cycle while
+the flash model's six frames were nearly identical.
+
+### Extraction: two approaches failed before one worked
+
+Both models draw cell borders, and the flash model did so even when the prompt
+explicitly forbade it. Those borders enclose each cell:
+
+1. **Whole-sheet edge flood fill** (what `make-sprites.swift` does today):
+   reached 427676 of 859201 white pixels, 49%. Blocked by the borders.
+2. **Slice first, then fill each cell from its own edges**: fixed the JPEG sheet
+   (99-100% per cell) but failed 2 of 6 cells on the PNG sheet at 50%, where the
+   drawn box sits inside the nominal cell boundary.
+3. **Grid detection by background-only row/column projection**: 0 usable gutters
+   on the JPEG sheet (borders span the full height), 5 false ones on the PNG.
+
+What works is **largest connected component per cell**: label non-background
+components, keep the biggest, discard the rest. Borders and stray marks are
+separate components and fall away. Verified on both sheets with a plain even
+grid and no gutter detection:
+
+```
+JPEG (pro)    6/6 cells  bboxes 156-204 x 294-318
+PNG  (flash)  6/6 cells  bboxes 141-161 x 212-214
+```
+
+Needs one guard: a component spanning >92% of the cell in both axes is a border,
+not a character.
