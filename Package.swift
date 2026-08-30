@@ -28,5 +28,8 @@ let package = Package(
             exclude: ["Sprites"],
             swiftSettings: swift5),
         .testTarget(name: "AskAICoreTests", dependencies: ["AskAICore"], swiftSettings: swift5),
+        // Cuts sprite sheets into frames. A target rather than a loose script so
+        // it can import the extraction logic instead of duplicating it.
+        .executableTarget(name: "SpriteTool", dependencies: ["AskAICore"], swiftSettings: swift5),
     ]
 )

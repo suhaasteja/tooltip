@@ -70,7 +70,7 @@ probe:
 # Re-slice the sprite sheets into transparent frames. Only needed when the
 # source art changes; Sources/AskAI/Sprites is committed.
 sprites:
-	@swift scripts/make-sprites.swift
+	@swift run SpriteTool
 
 # Cycle the panel through every state on a timer, so the character can be
 # iterated on without installing and right-clicking in another app.
