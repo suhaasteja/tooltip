@@ -597,3 +597,35 @@ uses, and emits both sides for every state, since the tail direction only gets
 exercised near a screen edge in normal use. Same caveats as before: no vibrancy
 offscreen, and the backdrop is drawn opaque so the transparent regions are
 visible as a rectangle.
+
+### The slow first invocation is the Keychain, not the panel
+
+Worth writing down because it looks exactly like a panel bug and is not one. On
+the first Services invocation after launch, the answer took 10-35 seconds to
+start. Instrumenting `show()` settled it:
+
+```
+15:13:53.239664  service fires
+15:13:53.269907  show build=11.3ms layout=16.0ms order=2.6ms key=0.2ms
+15:14:02.917696  keychain read ok            <- 9.65s gap
+15:14:02.920631  asking slot=1
+```
+
+All of it is the first `SecItemCopyMatching` in the sandboxed process, inside
+`AppDelegate.makeOrchestrator()`. Building the panel -- four hosting views,
+geometry, framing, shadow -- is 30ms cold and 0.6ms warm.
+
+This predates the sprite work entirely and is visible in this session's earlier
+logs on the previous build. It is also what the "first probe after launch did
+nothing" note further up was actually seeing; that entry's guess about a stray
+click was wrong.
+
+**Still unfixed.** The first question after launch appears frozen. The read
+happens on the main thread from the service handler, so nothing can draw. The
+obvious fix is to warm it on a background queue at launch -- the orchestrator is
+already built lazily and cached, so only the very first call pays -- but that is
+a change to the LLM wiring, not to the panel, and has been left alone here.
+
+The `show build=/layout=/order=/key=` line was kept rather than removed. In a
+hand-bundled app with no debugger attached, one notice per panel presentation is
+cheap and it is what turned a 35-second mystery into a one-line answer.

@@ -44,7 +44,9 @@ final class ResultPanel: NSObject {
     /// Shows the panel at the current pointer location, or repositions it if
     /// already visible.
     func show(at pointer: CGPoint = NSEvent.mouseLocation) {
+        let t0 = DispatchTime.now()
         let panel = existingOrNewPanel()
+        let tPanel = DispatchTime.now()
 
         // The side is chosen once per presentation, not per layout pass: a
         // bubble that flipped sides mid-answer because it grew a line would be
@@ -64,16 +66,30 @@ final class ResultPanel: NSObject {
             y: pointer.y - PanelPlacement.pointerGap - PanelChrome.characterHeight)
 
         layout()
+        let tLayout = DispatchTime.now()
 
         // `.accessory` apps have no active window to order against, so an
         // ordinary `orderFront` can be ignored. PLAN.md Stage 4.
         panel.orderFrontRegardless()
+        let tOrder = DispatchTime.now()
         // Safe with `.nonactivatingPanel`: the panel takes key status for
         // Escape/scrolling without activating AskAI, so the frontmost app keeps
         // its active title bar and, critically, its selection.
         panel.makeKey()
+        let tKey = DispatchTime.now()
 
         installDismissMonitors()
+
+        func ms(_ a: DispatchTime, _ b: DispatchTime) -> Double {
+            Double(b.uptimeNanoseconds &- a.uptimeNanoseconds) / 1_000_000
+        }
+        Log.panel.notice(
+            """
+            show build=\(ms(t0, tPanel), format: .fixed(precision: 1), privacy: .public)ms \
+            layout=\(ms(tPanel, tLayout), format: .fixed(precision: 1), privacy: .public)ms \
+            order=\(ms(tLayout, tOrder), format: .fixed(precision: 1), privacy: .public)ms \
+            key=\(ms(tOrder, tKey), format: .fixed(precision: 1), privacy: .public)ms
+            """)
     }
 
     func hide() {
