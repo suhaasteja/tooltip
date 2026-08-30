@@ -21,6 +21,9 @@ final class PanelModel: ObservableObject {
     /// Drives the character. Owned here rather than by the view so playback
     /// survives SwiftUI re-creating the view, and so `ResultPanel.hide()` has
     /// something to stop.
+    ///
+    /// Starts on the built-in set; `AppDelegate` swaps in the user's choice once
+    /// settings have been read.
     let animator = SpriteAnimator()
 
     init() {

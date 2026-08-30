@@ -22,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pointerTracker.start()
         // Decode the sprite PNGs now, not on the first invocation while the
         // user is waiting for an answer.
-        SpriteLoader.preload()
+        applyActiveSpriteSet()
         // Same idea, and far more important: get the Keychain dialog out of the
         // way at launch rather than in the middle of the first question.
         warmKeychain()
@@ -265,6 +265,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Sprites
+
+    private let spriteStore = SpriteSetStore()
+
+    /// Points the panel at the character the settings select, warming its frames.
+    ///
+    /// `activeSpriteSet` resolves the fallback, so a set that was deleted,
+    /// half-written, or has a corrupt manifest quietly becomes the built-in one
+    /// rather than an empty character.
+    private func applyActiveSpriteSet() {
+        let requested = settings.activeSpriteSetID
+        let set = settings.activeSpriteSet(store: spriteStore)
+        if set.id != requested {
+            Log.app.error(
+                """
+                sprite set \(requested, privacy: .public) unavailable; \
+                falling back to \(set.id, privacy: .public)
+                """)
+        }
+        // Logged unconditionally: "which character is loaded" is the first thing
+        // worth knowing when one looks wrong, and an absent warning is much
+        // weaker evidence than a present confirmation.
+        Log.app.notice(
+            """
+            sprite set \(set.id, privacy: .public) "\(set.name, privacy: .public)" \
+            frames=\(set.allFrames.count, privacy: .public)
+            """)
+        SpriteLoader.preload(set)
+        resultPanel.use(spriteSet: set)
+    }
+
     /// Discards the cached orchestrator so the next ask picks up new settings.
     ///
     /// Also drops the cached key and re-reads it: the most common reason to get
@@ -274,6 +305,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         orchestrator = nil
         cachedKey = nil
         warmKeychain()
+        // Settings changes can also switch the character.
+        applyActiveSpriteSet()
     }
 
     // MARK: - Services

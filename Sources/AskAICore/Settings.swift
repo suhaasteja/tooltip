@@ -61,6 +61,7 @@ public final class SettingsStore {
         static let effort = "llm.effort"
         static let streaming = "llm.streaming"
         static let launchAtLogin = "app.launchAtLogin"
+        static let spriteSet = "sprite.activeSetID"
     }
 
     private let defaults: UserDefaults
@@ -185,6 +186,25 @@ public final class SettingsStore {
     public var launchAtLogin: Bool {
         get { defaults.bool(forKey: Key.launchAtLogin) }
         set { defaults.set(newValue, forKey: Key.launchAtLogin) }
+    }
+
+    /// Which character the panel draws. Defaults to the one in the app bundle.
+    public var activeSpriteSetID: String {
+        get { defaults.string(forKey: Key.spriteSet) ?? SpriteSet.builtInID }
+        set { defaults.set(newValue, forKey: Key.spriteSet) }
+    }
+
+    /// The active set, or the built-in one if it is missing, unreadable, or has
+    /// lost its frames.
+    ///
+    /// Resolved here rather than at the call site so there is exactly one place
+    /// that decides what "the current character" means, and one place that has
+    /// to get the fallback right.
+    public func activeSpriteSet(store: SpriteSetStore = SpriteSetStore()) -> SpriteSet {
+        guard let set = store.set(id: activeSpriteSetID), store.isComplete(set) else {
+            return SpriteSet.builtIn
+        }
+        return set
     }
 
     /// Current settings as an `LLMConfiguration`.

@@ -46,7 +46,7 @@ enum SpriteSnapshot {
 
         // Every frame of the thinking loop, to check the cycle reads as motion
         // and that no frame is misaligned.
-        for index in 0..<SpriteMood.thinking.animation.frames.count {
+        for index in 0..<SpriteSet.builtIn.animation(for: .thinking).frames.count {
             let model = PanelModel()
             drive(model, to: .loading(selection: "Checking the walk cycle."))
             model.animator.showFrame(at: index)

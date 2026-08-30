@@ -14,30 +14,46 @@ import AskAICore
 /// should degrade to no character, never take the panel down with it.
 enum SpriteLoader {
 
+    /// Keyed by set id *and* frame name: two sets will both have a `walk-0`.
     private static var cache: [String: NSImage] = [:]
+    private static let store = SpriteSetStore()
 
-    static func image(named name: String) -> NSImage? {
-        if let hit = cache[name] { return hit }
-        guard let url = Bundle.main.url(
-                forResource: name, withExtension: "png", subdirectory: "Sprites"),
-              let image = NSImage(contentsOf: url)
-        else {
-            Log.panel.error("sprite frame missing: \(name, privacy: .public)")
+    static func image(named name: String, in set: SpriteSet) -> NSImage? {
+        let key = "\(set.id)/\(name)"
+        if let hit = cache[key] { return hit }
+
+        let url: URL?
+        if set.id == SpriteSet.builtInID {
+            url = Bundle.main.url(
+                forResource: name, withExtension: "png", subdirectory: "Sprites")
+        } else {
+            let candidate = store.directory(for: set.id)
+                .appendingPathComponent("\(name).png")
+            url = FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+        }
+
+        guard let url, let image = NSImage(contentsOf: url) else {
+            Log.panel.error(
+                "sprite frame missing: \(set.id, privacy: .public)/\(name, privacy: .public)")
             return nil
         }
         // The PNGs are 2x. Halving the reported size makes SwiftUI lay them out
         // in points while still drawing every pixel on Retina.
         image.size = NSSize(width: image.size.width / 2, height: image.size.height / 2)
-        cache[name] = image
+        cache[key] = image
         return image
     }
 
     /// Warms the cache so the first invocation does not decode PNGs while the
     /// user is waiting on it.
-    static func preload() {
-        for mood in SpriteMood.allCases {
-            for frame in mood.animation.frames { _ = image(named: frame) }
-        }
+    static func preload(_ set: SpriteSet) {
+        for frame in set.allFrames { _ = image(named: frame, in: set) }
+    }
+
+    /// Drops cached frames for a set, so a regenerated character is picked up
+    /// without relaunching.
+    static func forget(_ setID: String) {
+        cache = cache.filter { !$0.key.hasPrefix("\(setID)/") }
     }
 }
 
@@ -54,13 +70,28 @@ final class SpriteAnimator: ObservableObject {
 
     @Published private(set) var frameName: String
 
+    /// The character being played. Swapping it restarts the current mood, so a
+    /// newly generated set is visible without relaunching.
+    private(set) var set: SpriteSet
+
     private var mood: SpriteMood = .idle
     private var timer: Timer?
     private var index = 0
 
-    init(mood: SpriteMood = .idle) {
+    init(set: SpriteSet = .builtIn, mood: SpriteMood = .idle) {
+        self.set = set
         self.mood = mood
-        self.frameName = mood.animation.restingFrame
+        self.frameName = set.animation(for: mood).restingFrame
+    }
+
+    func use(_ newSet: SpriteSet) {
+        guard newSet != set else { return }
+        set = newSet
+        SpriteLoader.preload(newSet)
+        let current = mood
+        // Force a restart: `play` short-circuits when the mood is unchanged.
+        mood = .idle
+        play(current)
     }
 
     /// True when the system asks for reduced motion. Read live rather than
@@ -77,8 +108,8 @@ final class SpriteAnimator: ObservableObject {
         mood = newMood
         stopTimer()
 
-        let animation = newMood.animation
-        guard animated, !prefersReducedMotion, newMood.needsAnimation else {
+        let animation = set.animation(for: newMood)
+        guard animated, !prefersReducedMotion, set.needsAnimation(for: newMood) else {
             frameName = animation.restingFrame
             return
         }
@@ -97,7 +128,7 @@ final class SpriteAnimator: ObservableObject {
     }
 
     private func advance() {
-        let animation = mood.animation
+        let animation = set.animation(for: mood)
         index += 1
         if index >= animation.frames.count {
             guard animation.loops else {
@@ -115,7 +146,7 @@ final class SpriteAnimator: ObservableObject {
     /// Pins playback to one frame of the current mood. Snapshot testing only.
     func showFrame(at index: Int) {
         stopTimer()
-        let frames = mood.animation.frames
+        let frames = set.animation(for: mood).frames
         self.index = min(max(index, 0), frames.count - 1)
         frameName = frames[self.index]
     }
@@ -124,7 +155,7 @@ final class SpriteAnimator: ObservableObject {
     /// is never animating something nobody can see.
     func stop() {
         stopTimer()
-        frameName = mood.animation.restingFrame
+        frameName = set.animation(for: mood).restingFrame
     }
 
     private func stopTimer() {
@@ -142,7 +173,7 @@ struct SpriteView: View {
 
     var body: some View {
         Group {
-            if let image = SpriteLoader.image(named: animator.frameName) {
+            if let image = SpriteLoader.image(named: animator.frameName, in: animator.set) {
                 Image(nsImage: image)
                     .interpolation(.none)  // keep pixel art hard-edged
                     .resizable()

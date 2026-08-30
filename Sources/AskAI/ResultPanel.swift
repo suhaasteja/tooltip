@@ -24,6 +24,11 @@ final class ResultPanel: NSObject {
     /// The state machine driving the panel. Callers mutate this.
     var machine: PanelViewModel { model.machine }
 
+    /// Swaps the character. Safe while the panel is visible.
+    func use(spriteSet: SpriteSet) {
+        model.animator.use(spriteSet)
+    }
+
     private var stateObserver: AnyCancellable?
 
     override init() {

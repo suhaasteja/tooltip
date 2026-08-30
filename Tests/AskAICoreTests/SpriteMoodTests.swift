@@ -18,7 +18,7 @@ struct SpriteMoodTests {
     @Test("every mood has at least one frame and a positive duration")
     func animationsAreWellFormed() {
         for mood in SpriteMood.allCases {
-            let animation = mood.animation
+            let animation = SpriteSet.builtIn.animation(for: mood)
             #expect(!animation.frames.isEmpty, "\(mood) has no frames")
             #expect(animation.frameDuration > 0, "\(mood) has a non-positive duration")
         }
@@ -31,7 +31,7 @@ struct SpriteMoodTests {
         let known = Set(
             (0..<6).map { "walk-\($0)" } + (0..<4).map { "pose-\($0)" })
         for mood in SpriteMood.allCases {
-            for frame in mood.animation.frames {
+            for frame in SpriteSet.builtIn.animation(for: mood).frames {
                 #expect(known.contains(frame), "\(mood) references unknown frame \(frame)")
             }
         }
@@ -40,17 +40,19 @@ struct SpriteMoodTests {
     @Test("only thinking loops; everything else settles")
     func onlyThinkingLoops() {
         for mood in SpriteMood.allCases {
-            #expect(mood.animation.loops == (mood == .thinking), "\(mood) loops incorrectly")
+            #expect(SpriteSet.builtIn.animation(for: mood).loops == (mood == .thinking),
+                    "\(mood) loops incorrectly")
         }
     }
 
     @Test("single-frame moods need no timer")
     func staticMoodsNeedNoAnimation() {
-        #expect(SpriteMood.thinking.needsAnimation)
-        #expect(SpriteMood.talking.needsAnimation)
-        #expect(!SpriteMood.idle.needsAnimation)
-        #expect(!SpriteMood.confused.needsAnimation)
-        #expect(!SpriteMood.searching.needsAnimation)
+        let set = SpriteSet.builtIn
+        #expect(set.needsAnimation(for: .thinking))
+        #expect(set.needsAnimation(for: .talking))
+        #expect(!set.needsAnimation(for: .idle))
+        #expect(!set.needsAnimation(for: .confused))
+        #expect(!set.needsAnimation(for: .searching))
     }
 }
 
@@ -90,7 +92,7 @@ struct SpriteAnimationTests {
     @Test("the resting frame is the last one, not the first")
     func restingFrameIsLast() {
         #expect(oneShot.restingFrame == "c")
-        #expect(SpriteMood.talking.animation.restingFrame == "pose-3")
+        #expect(SpriteSet.builtIn.animation(for: .talking).restingFrame == "pose-3")
     }
 
     @Test("cycle duration covers every frame once")

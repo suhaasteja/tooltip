@@ -193,7 +193,12 @@ already failed on the second sheet. Stage 2 still runs in full.
 
 ---
 
-## Stage 0 — Make sprite sets data-driven
+## Stage 0 — Make sprite sets data-driven — **DONE**
+
+> Shipped. `SpriteSet` + `SpriteSetStore` in `AskAICore`, `SettingsStore
+> .activeSpriteSetID`, and `SpriteLoader` resolving per set. 157 tests (was
+> 138); `make snapshot` byte-identical; a hand-installed set was loaded, its
+> fallback proved by breaking it, and restored. See NOTES.md.
 
 No network, no new UI. Today `SpriteMood.animation` hardcodes frame names and
 `SpriteLoader` reads one fixed directory inside the read-only app bundle.

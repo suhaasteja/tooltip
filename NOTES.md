@@ -790,3 +790,48 @@ block-centre sampling   : 197
 
 Recorded because the intuition "sample block centres and the JPEG artefacts
 vanish" is appealing and wrong: it is a 2.5% improvement, not a fix.
+
+## Sprite sets (PLAN-sprites.md Stage 0)
+
+The character is no longer welded to the bundle. `SpriteSet` describes one
+character as data — an animation per mood, each naming frames by basename — and
+`SpriteSetStore` reads sets from Application Support, which inside the sandbox
+resolves to the app's own container. `SpriteSet.builtIn` describes the vendored
+character in code, so the fallback needs nothing on disk.
+
+Three properties this stage exists to guarantee, all asserted:
+
+- **A set missing a mood** falls back to the built-in animation *for that mood*,
+  rather than leaving the panel with nothing to draw. Half-generated characters
+  will be common in Stage 4.
+- **A manifest is validated on decode.** Empty `frames` and a non-positive
+  duration are rejected (an empty array would trap on the next subscript); an
+  out-of-range `restingIndex` is clamped instead, because a bad resting frame is
+  cosmetic and not worth discarding a usable character over.
+- **A set whose frames are missing on disk is not "complete"** and is not used.
+  That is the interrupted-generation case: the manifest lands but the PNGs did
+  not. `save` writes the manifest *last* for the same reason.
+
+`restingIndex` is now stored rather than derived. The shipped sequences are
+authored to settle into their resting pose, so "last frame" was right for them,
+but a generated animation may rest anywhere.
+
+### Verification
+
+`make snapshot` output was byte-identical to the pre-refactor baseline, which is
+the check that matters: this stage was supposed to change no rendering at all.
+
+The disk path was exercised end to end rather than assumed. A hand-built set was
+installed into the container, and all three directions confirmed from logs:
+
+```
+1. installed  -> sprite set inverted "Inverted Guitarist" frames=10
+2. one frame removed
+              -> sprite set inverted unavailable; falling back to builtin
+                 sprite set builtin "Guitarist" frames=10
+3. restored   -> sprite set inverted "Inverted Guitarist" frames=10
+```
+
+The load is logged unconditionally, not just on failure. An absent warning is
+much weaker evidence than a present confirmation, and "which character is
+loaded" is the first thing worth knowing when one looks wrong.
