@@ -327,7 +327,11 @@ generation by hand, with timing recorded in NOTES.md. No live calls in the suite
 
 ---
 
-## Stage 4 — Settings: generate a character
+## Stage 4 — Settings: generate a character — **DONE**
+
+> Shipped: a Sprites tab with `SpriteStudioModel` + `SpriteStudioView`. Cost
+> warning, named progress steps, working cancel, preview-before-keep. 201 tests
+> (was 194). Verified end to end with a live generation. See NOTES.md.
 
 A new **Sprites** tab in the existing Settings window.
 

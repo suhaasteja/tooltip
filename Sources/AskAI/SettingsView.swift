@@ -4,11 +4,14 @@ import AskAICore
 /// Settings UI: API key, model, and the four editable prompt bodies.
 struct SettingsView: View {
     @ObservedObject var model: SettingsModel
+    @ObservedObject var sprites: SpriteStudioModel
 
     var body: some View {
         TabView {
             general.tabItem { Label("General", systemImage: "gearshape") }
             prompts.tabItem { Label("Prompts", systemImage: "text.bubble") }
+            SpriteStudioView(model: sprites)
+                .tabItem { Label("Sprites", systemImage: "person.crop.square") }
         }
         .frame(width: 520, height: 430)
     }

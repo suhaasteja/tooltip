@@ -11,9 +11,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private let model: SettingsModel
+    private let sprites: SpriteStudioModel
 
-    init(model: SettingsModel) {
+    init(model: SettingsModel, sprites: SpriteStudioModel) {
         self.model = model
+        self.sprites = sprites
     }
 
     func show() {
@@ -25,13 +27,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 defer: false
             )
             window.title = "AskAI Settings"
-            window.contentView = NSHostingView(rootView: SettingsView(model: model))
+            window.contentView = NSHostingView(
+                rootView: SettingsView(model: model, sprites: sprites))
             window.isReleasedWhenClosed = false
             window.center()
             window.delegate = self
             self.window = window
         }
 
+        // Pick up characters installed since the window was last opened.
+        sprites.refreshSets()
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }

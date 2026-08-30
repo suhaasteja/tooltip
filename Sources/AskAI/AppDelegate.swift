@@ -425,7 +425,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 keychain: keychain,
                 onChange: { [weak self] in self?.invalidateOrchestrator() }
             )
-            settingsWindow = SettingsWindowController(model: model)
+            let sprites = SpriteStudioModel(
+                store: settings,
+                keychain: keychain,
+                sets: spriteStore,
+                onChange: { [weak self] in self?.applyActiveSpriteSet() }
+            )
+            settingsWindow = SettingsWindowController(model: model, sprites: sprites)
         }
         settingsWindow?.show()
     }

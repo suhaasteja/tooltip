@@ -172,6 +172,27 @@ public struct SpriteSet: Codable, Equatable, Sendable, Identifiable {
         animation(for: mood).frames.count > 1
     }
 
+    /// A filesystem-safe id derived from a description.
+    ///
+    /// The id becomes a directory name, and the description is whatever the user
+    /// typed — including, potentially, path separators. Everything that is not a
+    /// letter or digit collapses to a single dash, which makes traversal
+    /// impossible rather than merely unlikely.
+    ///
+    /// Stable by design: regenerating the same description reuses the id and
+    /// replaces the character, instead of accumulating near-duplicates.
+    public static func makeID(from description: String) -> String {
+        let slug = description.lowercased()
+            .map { $0.isLetter || $0.isNumber ? $0 : "-" }
+            .reduce(into: "") { result, character in
+                if character == "-", result.last == "-" { return }
+                result.append(character)
+            }
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let trimmed = String(slug.prefix(40))
+        return trimmed.isEmpty ? "character" : trimmed
+    }
+
     // MARK: - The shipped character
 
     public static let builtInID = "builtin"

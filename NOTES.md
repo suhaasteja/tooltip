@@ -972,3 +972,47 @@ walk-3  120px of 132  (90%)      pose-1  132px of 132  (100%)
 Rendered at a fixed height, that is a ~12% size jump when the mood changes.
 The fix is to normalise scale *across* sheets instead of within each one, which
 needs both sheets in hand before either is cut. Deferred to Stage 6.
+
+## Sprites tab (PLAN-sprites.md Stage 4)
+
+`SpriteStudioModel` + `SpriteStudioView`, a third tab beside General and Prompts.
+Describe a character, generate, look at the frames, keep or discard.
+
+Four decisions worth keeping:
+
+- **Nothing is written until the user keeps a preview.** That makes "cancel"
+  trivially correct — there is no partial set to clean up, because a set is only
+  ever saved by an explicit keep. It also means a bad generation costs money but
+  never pollutes the character list.
+- **Named progress steps, not a spinner.** The run takes ~53 seconds; a minute of
+  undifferentiated spinning reads as a hang.
+- **A cost warning before the first paid run.** Three image requests billed to
+  the user's own key. They should not learn that from a bill.
+- **The key field only appears when the key cannot be reused.**
+  `SettingsStore.llmKeyWorksForImages` checks the configured base URL's *host*,
+  not the preset id, because the URL is user-editable and the preset is only a UI
+  hint. A lookalike host is rejected; there is a test for that.
+
+`SpriteSet.makeID(from:)` moved into `AskAICore` rather than staying in the app
+target. The id becomes a directory name and the description is whatever the user
+typed, so traversal safety must be asserted against the real implementation, not
+a copy in the test file that can drift. `"../../etc/passwd"` collapses to
+`etc-passwd`.
+
+Concurrency follows the rest of the AppKit layer: explicit main-thread hops, not
+`@MainActor`. Adding the attribute pulled isolation checking into `AppDelegate`
+and `SettingsWindowController`, which this package deliberately opts out of (see
+Package.swift). The Keychain read runs on a detached task for the reason recorded
+above.
+
+### Verified
+
+- `make snapshot` byte-identical: the panel itself is untouched.
+- A character generated live by `SpriteTool generate` was installed into the
+  app's real container, selected, and driven through a genuine Services
+  invocation: `sprite set generated "a small round owl…" frames=10`, panel drawn
+  at 415x165 growing to 239 as the answer streamed, no missing frames.
+
+**Not verified: the buttons.** Generate / cancel / keep / discard need a human
+clicking them. The logic behind each is tested, and the end-to-end path is
+proven, but the wiring from button to model has only been read, not exercised.
