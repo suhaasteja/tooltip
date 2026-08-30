@@ -135,3 +135,63 @@ struct PanelAnchorTests {
         #expect(point == menu)
     }
 }
+
+@Suite("Bubble side")
+struct BubbleSideTests {
+
+    private let character: CGFloat = 56
+    private let bubble: CGFloat = 300
+    private let tail: CGFloat = 11
+
+    private func side(atX x: CGFloat, screens: [CGRect] = [mainScreen]) -> BubbleSide {
+        PanelPlacement.bubbleSide(
+            anchor: CGPoint(x: x, y: 500),
+            characterWidth: character, bubbleWidth: bubble, tailWidth: tail,
+            screens: screens)
+    }
+
+    @Test("prefers the right when there is room")
+    func prefersRight() {
+        #expect(side(atX: 100) == .right)
+        #expect(side(atX: 700) == .right)
+    }
+
+    @Test("flips left near the right edge")
+    func flipsLeft() {
+        // 1440 wide: a character plus tail plus gap plus a 300pt bubble cannot
+        // fit to the right of x=1200.
+        #expect(side(atX: 1200) == .left)
+        #expect(side(atX: 1400) == .left)
+    }
+
+    @Test("stays right when the left is even tighter")
+    func staysRightWhenLeftIsWorse() {
+        // Hard against the left edge: neither side fits, but the right has more
+        // room, so it should not flip into the screen edge.
+        #expect(side(atX: 10) == .right)
+    }
+
+    @Test("no screens means no flipping")
+    func noScreens() {
+        #expect(side(atX: 99999, screens: []) == .right)
+    }
+
+    @Test("uses the display the anchor is actually on")
+    func usesContainingScreen() {
+        // x=1500 is near the LEFT edge of the second display, not the right
+        // edge of the first, so there is plenty of room to the right.
+        #expect(side(atX: 1500, screens: [mainScreen, rightScreen]) == .right)
+        // Near the second display's right edge it must flip.
+        #expect(side(atX: 3200, screens: [mainScreen, rightScreen]) == .left)
+    }
+
+    @Test("the flip boundary respects the screen margin")
+    func flipBoundary() {
+        let arm = tail + PanelPlacement.pointerGap + bubble
+        // Exactly fits.
+        let fits = mainScreen.maxX - PanelPlacement.screenMargin - arm - character
+        #expect(side(atX: fits) == .right)
+        // One point further right does not.
+        #expect(side(atX: fits + 1) == .left)
+    }
+}

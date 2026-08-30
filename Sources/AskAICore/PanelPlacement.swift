@@ -1,5 +1,14 @@
 import CoreGraphics
 
+/// Which side of the character the speech bubble hangs on.
+///
+/// The tail has to point back at the character, so this is not a private
+/// rendering detail -- placement decides it and the view has to follow.
+public enum BubbleSide: String, Equatable, Sendable {
+    case right
+    case left
+}
+
 /// Screen-coordinate math for positioning the result panel at the pointer.
 ///
 /// Pure and screen-agnostic so it can be unit tested with synthetic rects — the
@@ -59,6 +68,51 @@ public enum PanelPlacement {
         y = clamp(y, lower: frame.minY + margin, upper: frame.maxY - margin - panelSize.height)
 
         return CGPoint(x: x, y: y)
+    }
+
+    /// Which side of the character the bubble should hang on.
+    ///
+    /// Prefers the right, matching reading direction and the way the panel has
+    /// always hung below-right of the pointer. Flips left when the bubble would
+    /// overflow the screen's right edge. When neither side fits -- a bubble
+    /// wider than the room on either flank -- it picks the roomier one, because
+    /// the final clamp will slide the window back on-screen and the side with
+    /// more space is the one that ends up covering less of the selection.
+    ///
+    /// Pure and screen-agnostic for the same reason as `origin`: the flip rule
+    /// is the part worth testing, and it should not need a second display to
+    /// exercise.
+    ///
+    /// - Parameters:
+    ///   - anchor: Where the character will sit (the user's context click).
+    ///   - characterWidth: Width of the character.
+    ///   - bubbleWidth: Width of the bubble.
+    ///   - tailWidth: Width of the tail between them.
+    public static func bubbleSide(
+        anchor: CGPoint,
+        characterWidth: CGFloat,
+        bubbleWidth: CGFloat,
+        tailWidth: CGFloat,
+        screens: [CGRect],
+        gap: CGFloat = pointerGap,
+        margin: CGFloat = screenMargin
+    ) -> BubbleSide {
+        guard let frame = screen(containing: anchor, in: screens) else { return .right }
+
+        let arm = tailWidth + gap + bubbleWidth
+        let rightEdge = anchor.x + characterWidth + arm
+        let leftEdge = anchor.x - arm
+
+        let fitsRight = rightEdge <= frame.maxX - margin
+        if fitsRight { return .right }
+
+        let fitsLeft = leftEdge >= frame.minX + margin
+        if fitsLeft { return .left }
+
+        // Neither fits: take the flank with more room.
+        let roomRight = (frame.maxX - margin) - (anchor.x + characterWidth)
+        let roomLeft = anchor.x - (frame.minX + margin)
+        return roomRight >= roomLeft ? .right : .left
     }
 
     /// The visible frame containing `point`, or the nearest one if the pointer

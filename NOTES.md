@@ -521,3 +521,79 @@ One transient worth recording: the very first probe after launch returned
 but no `asking slot=` line and no on-screen window. Every subsequent invocation
 behaved. Most likely the global mouse-down dismiss monitor catching a stray
 click during app warm-up. Not reproduced since; noted rather than explained.
+
+---
+
+## Character outside the panel (BACKLOG.md §2, second pass)
+
+Three unknowns were probed before any panel code was touched, because two of
+them would have invalidated the design.
+
+### Transparent window regions swallow clicks — this was the blocker
+
+Once the window spans character *and* bubble, most of it is empty. A plain
+`NSView` claims every point in its bounds, so `hitTest` returned
+`NSHostingView` even at the far corner. Two consequences, both bad: clicks meant
+for the app the user is reading get eaten, and `ResultPanel`'s dismiss rule
+(`event.window !== panel`) reports "inside the panel" for a click on empty air,
+so the panel stops closing.
+
+`ShapedContainer` overrides `hitTest` and returns nil outside registered rects.
+Verified: bubble/tail/character accept clicks, everything else passes through.
+The dismissal fix falls out for free — a click in the gap reaches the window
+below, and the app's existing global mouse monitor sees it and hides the panel.
+
+### SwiftUI's `.regularMaterial` is NOT a substitute for `NSVisualEffectView`
+
+The plan had been to move the vibrancy into SwiftUI as
+`.background(.regularMaterial)` so the bubble could carry its own backdrop.
+Walking the view tree shows this builds **no `NSVisualEffectView` at all** — the
+result is a flat translucent fill with no behind-window blur.
+
+So the effect view stays, just sized to the bubble instead of being the
+`contentView`. Confirmed working as a sub-region: `material=6` (`.popover`),
+`blendingMode=0` (`.behindWindow`).
+
+The tail is still filled with `.regularMaterial`, which is a deliberate
+compromise: at 11x18pt a flat fill matches the card closely enough, and the
+alternative is a second effect view with a triangular mask.
+
+### The shadow does trace irregular content
+
+`hasShadow` + `isOpaque=false` derives the shadow from content alpha, and it
+handles a detached character correctly — bubble and character get their own
+shadows rather than one rectangular smear. It must be recomputed whenever the
+silhouette changes, so `layout()` ends with `invalidateShadow()`; that is every
+streamed delta.
+
+### Anchoring inverted, and verified empirically
+
+The old panel pinned its top-left and grew downward. This one pins the
+**character** and grows the bubble away from it. Measured across state changes
+in preview mode:
+
+```
+x=760.0 topY=1677.0 w=415.0 h=149.0
+x=760.0 topY=1677.0 w=415.0 h=185.0
+x=760.0 topY=1677.0 w=415.0 h=124.0
+```
+
+Constant x and top edge while the height moves — so the character does not
+drift while an answer streams in.
+
+The arrangement itself is `BubbleLayout.geometry` in `AskAICore`, not in the
+panel: a tail one point off its bubble, or a character that shifts a pixel
+between frames, are invisible in a passing build and glaring in use. They are
+now assertions instead.
+
+`PanelPlacement.bubbleSide` picks the flank, chosen **once per presentation**
+rather than per layout pass — a bubble that flipped sides mid-answer because it
+grew a line would throw the character across the text.
+
+### Snapshot tool now composes the real layout
+
+`SpriteSnapshot` renders through the same `BubbleLayout.geometry` the panel
+uses, and emits both sides for every state, since the tail direction only gets
+exercised near a screen edge in normal use. Same caveats as before: no vibrancy
+offscreen, and the backdrop is drawn opaque so the transparent regions are
+visible as a rectangle.

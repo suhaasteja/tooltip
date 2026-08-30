@@ -31,11 +31,16 @@ enum SpriteSnapshot {
             ("empty", .emptySelection),
         ]
 
+        // Both sides for every state: the tail direction is the thing most
+        // likely to be wrong, and it is only exercised near a screen edge in
+        // real use.
         for (name, state) in states {
-            let model = PanelModel()
-            drive(model, to: state)
-            if let png = render(model: model) {
-                write(png, to: "\(directory)/state-\(name).png")
+            for side in [BubbleSide.right, .left] {
+                let model = PanelModel()
+                drive(model, to: state)
+                if let png = render(model: model, side: side) {
+                    write(png, to: "\(directory)/state-\(name)-\(side.rawValue).png")
+                }
             }
         }
 
@@ -45,7 +50,7 @@ enum SpriteSnapshot {
             let model = PanelModel()
             drive(model, to: .loading(selection: "Checking the walk cycle."))
             model.animator.showFrame(at: index)
-            if let png = render(model: model) {
+            if let png = render(model: model, side: .right) {
                 write(png, to: "\(directory)/walk-\(index).png")
             }
         }
@@ -71,31 +76,73 @@ enum SpriteSnapshot {
         }
     }
 
-    /// Draws the SwiftUI content into a bitmap.
+    /// Composes character, tail and bubble exactly as `ResultPanel` does, and
+    /// draws the result into a bitmap.
     ///
-    /// On an opaque backdrop rather than transparency: `NSVisualEffectView`
-    /// samples what is behind the window, which offscreen is nothing, so the
-    /// real panel's vibrancy cannot be captured this way. A flat panel-ish grey
-    /// is an honest stand-in for checking layout and the character, and is not
-    /// a claim about the final material.
-    private static func render(model: PanelModel) -> Data? {
-        let view = NSHostingView(rootView: ResultPanelView(model: model))
-        view.layoutSubtreeIfNeeded()
-        let size = view.fittingSize
-        view.frame = NSRect(origin: .zero, size: size)
-        view.layoutSubtreeIfNeeded()
+    /// Shares `BubbleLayout.geometry` with the real panel rather than
+    /// re-deriving the arrangement, so a snapshot that looks right is evidence
+    /// about the shipping layout and not about a copy of it.
+    ///
+    /// Two honest limitations:
+    ///
+    /// * `NSVisualEffectView` samples what is behind the *window*, and offscreen
+    ///   there is nothing, so the bubble is filled flat here. These images say
+    ///   nothing about the real material.
+    /// * The window backdrop is drawn opaque so the transparent regions are
+    ///   visible as a rectangle. In use those regions are see-through and pass
+    ///   clicks through (`ShapedContainer`).
+    private static func render(model: PanelModel, side: BubbleSide) -> Data? {
+        let bubbleHost = NSHostingView(rootView: ResultPanelView(model: model))
+        bubbleHost.layoutSubtreeIfNeeded()
+        let bubbleSize = NSSize(width: ResultPanelView.width,
+                                height: max(bubbleHost.fittingSize.height, 44))
 
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        let geometry = BubbleLayout.geometry(
+            bubbleSize: bubbleSize,
+            characterSize: CGSize(width: PanelChrome.characterWidth,
+                                  height: PanelChrome.characterHeight),
+            tailSize: CGSize(width: PanelChrome.tailWidth,
+                             height: PanelChrome.tailHeight),
+            side: side,
+            gap: PanelChrome.gap,
+            inset: PanelChrome.shadowInset,
+            tailDropFromTop: PanelChrome.tailDropFromTop)
 
-        // Fill the backdrop first; cacheDisplay draws the view over it.
+        let container = NSView(frame: NSRect(origin: .zero, size: geometry.windowSize))
+
+        // Stand-in for the vibrancy, which cannot render offscreen.
+        let card = NSView(frame: geometry.bubbleRect)
+        card.wantsLayer = true
+        card.layer?.backgroundColor = NSColor(calibratedWhite: 0.17, alpha: 1).cgColor
+        card.layer?.cornerRadius = 12
+        card.layer?.cornerCurve = .continuous
+        container.addSubview(card)
+
+        let tail = NSHostingView(rootView: TailView(side: side))
+        tail.frame = geometry.tailRect
+        container.addSubview(tail)
+
+        bubbleHost.frame = geometry.bubbleRect
+        container.addSubview(bubbleHost)
+
+        let character = NSHostingView(
+            rootView: SpriteView(animator: model.animator,
+                                 height: PanelChrome.characterHeight))
+        character.frame = geometry.characterRect
+        container.addSubview(character)
+
+        container.layoutSubtreeIfNeeded()
+        guard let rep = container.bitmapImageRepForCachingDisplay(in: container.bounds)
+        else { return nil }
+
         if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = ctx
-            NSColor(calibratedWhite: 0.16, alpha: 1).setFill()
-            view.bounds.fill()
+            NSColor(calibratedWhite: 0.32, alpha: 1).setFill()
+            container.bounds.fill()
             NSGraphicsContext.restoreGraphicsState()
         }
-        view.cacheDisplay(in: view.bounds, to: rep)
+        container.cacheDisplay(in: container.bounds, to: rep)
         return rep.representation(using: .png, properties: [:])
     }
 

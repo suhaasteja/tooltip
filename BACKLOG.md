@@ -56,16 +56,19 @@ Then: `make install && pbs -flush`, relaunch, re-bind shortcuts.
 
 ## 2. Sprite character
 
-> **Partly built.** A first pass ships: the character lives *inside* the existing
-> card, beside the text, driven by `SpriteMood` (`AskAICore`) off `PanelState`.
-> Frames are sliced from `~/Desktop/sprite-sheet-creator` by
-> `scripts/make-sprites.swift`. See NOTES.md for what bit.
+> **Built.** The character stands outside the card with a speech bubble and a
+> tail, driven by `SpriteMood` off `PanelState`. Geometry is
+> `BubbleLayout.geometry` in `AskAICore` (tested), the flank comes from
+> `PanelPlacement.bubbleSide`, and `ShapedContainer` keeps the window's
+> transparent regions click-through. See NOTES.md.
 >
-> Still parked: the character standing **outside** the panel with a speech
-> bubble, which is the interesting half. That needs the vibrancy backdrop moved
-> out of the window's `contentView` into SwiftUI, `PanelPlacement` reporting
-> which side it flipped to so a bubble tail can point back at the character, and
-> `resizeToFit` inverted to pin the character instead of the top-left corner.
+> Note for anyone reading the original plan below: moving the vibrancy into
+> SwiftUI as `.background(.regularMaterial)` does **not** work — it builds no
+> `NSVisualEffectView` and produces a flat fill with no blur. The effect view
+> stayed, sized to the bubble.
+>
+> Still open: the bubble has no scroll affordance of its own beyond the
+> inherited 420pt cap, and the character does not persist between invocations.
 
 **Idea:** instead of a text card, a small animated character appears at the
 selected text and delivers the answer in a speech bubble.

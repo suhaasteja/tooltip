@@ -5,23 +5,18 @@ import AskAICore
 struct ResultPanelView: View {
     @ObservedObject var model: PanelModel
 
-    /// Panel width is fixed; height follows the content up to a cap.
-    static let width: CGFloat = 380
+    /// Bubble width is fixed; height follows the content up to a cap.
+    ///
+    /// The character is no longer part of this view --- it is a sibling hosting
+    /// view outside the bubble, positioned by `ResultPanel`, so that the bubble
+    /// can carry a vibrancy backdrop while the character sits on transparency.
+    static let width: CGFloat = PanelChrome.bubbleWidth
     static let maxContentHeight: CGFloat = 420
 
-    /// How much horizontal room the character occupies beside the text.
-    static let spriteHeight: CGFloat = 66
-
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            // The character sits beside the content, top-aligned, so it stays
-            // put while an answer streams in and grows the column next to it.
-            SpriteView(animator: model.animator, height: Self.spriteHeight)
-
-            VStack(alignment: .leading, spacing: 10) {
-                header
-                content
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            header
+            content
         }
         .padding(14)
         .frame(width: Self.width, alignment: .leading)

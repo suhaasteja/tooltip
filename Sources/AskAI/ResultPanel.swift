@@ -45,8 +45,25 @@ final class ResultPanel: NSObject {
     /// already visible.
     func show(at pointer: CGPoint = NSEvent.mouseLocation) {
         let panel = existingOrNewPanel()
-        resize(panel)
-        position(panel, at: pointer)
+
+        // The side is chosen once per presentation, not per layout pass: a
+        // bubble that flipped sides mid-answer because it grew a line would be
+        // jarring, and the character would appear to jump across the text.
+        side = PanelPlacement.bubbleSide(
+            anchor: pointer,
+            characterWidth: PanelChrome.characterWidth,
+            bubbleWidth: ResultPanelView.width,
+            tailWidth: PanelChrome.tailWidth,
+            screens: visibleFrames())
+
+        // Where the character should sit, in screen coordinates. Everything
+        // else is laid out around it, and it stays put for the whole
+        // presentation -- see `layout()`.
+        characterOrigin = CGPoint(
+            x: pointer.x + PanelPlacement.pointerGap,
+            y: pointer.y - PanelPlacement.pointerGap - PanelChrome.characterHeight)
+
+        layout()
 
         // `.accessory` apps have no active window to order against, so an
         // ordinary `orderFront` can be ignored. PLAN.md Stage 4.
@@ -70,23 +87,15 @@ final class ResultPanel: NSObject {
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
-    /// Re-measures the hosted SwiftUI content and grows/shrinks the panel,
-    /// keeping its top-left corner anchored so the panel expands downward as an
-    /// answer streams in rather than crawling up the screen.
+    /// Re-measures the bubble and re-lays-out around the character.
+    ///
+    /// The character is the fixed point, which is the inversion this layout
+    /// required: the old card pinned its top-left corner and grew downward,
+    /// but here the character must not move while the bubble grows next to it
+    /// on every streamed delta.
     func resizeToFit() {
         guard let panel, panel.isVisible else { return }
-        let topLeft = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
-        resize(panel)
-        var frame = panel.frame
-        frame.origin = CGPoint(x: topLeft.x, y: topLeft.y - frame.height)
-        // Re-clamp: growth may have pushed the bottom edge off-screen.
-        frame.origin = PanelPlacement.origin(
-            pointer: CGPoint(x: frame.minX, y: frame.maxY),
-            panelSize: frame.size,
-            screens: visibleFrames(),
-            gap: 0
-        )
-        panel.setFrame(frame, display: true)
+        layout()
     }
 
     // MARK: - Panel construction
@@ -112,7 +121,17 @@ final class ResultPanel: NSObject {
         panel.animationBehavior = .utilityWindow
         panel.onEscape = { [weak self] in self?.hide() }
 
-        // Vibrancy backdrop with rounded corners; the hosting view rides on top.
+        // The window now spans character + bubble, so most of it is empty. A
+        // shaped container is what stops that empty space from swallowing
+        // clicks meant for the app underneath. See PanelChrome.
+        let container = ShapedContainer()
+
+        // Vibrancy sized to the BUBBLE, not the window.
+        //
+        // It used to be the contentView, which is why it came for free. SwiftUI's
+        // `.regularMaterial` is not a substitute -- it builds no
+        // NSVisualEffectView at all (verified; NOTES.md), so the blur has to
+        // stay a real effect view, just a smaller one.
         let effect = NSVisualEffectView()
         effect.material = .popover
         effect.blendingMode = .behindWindow
@@ -121,40 +140,102 @@ final class ResultPanel: NSObject {
         effect.layer?.cornerRadius = 12
         effect.layer?.cornerCurve = .continuous
         effect.layer?.masksToBounds = true
+        container.addSubview(effect)
 
-        let hosting = NSHostingView(rootView: ResultPanelView(model: model))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(hosting)
-        NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: effect.topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-        ])
+        // Tail below the bubble in z-order; it only overlaps by a point.
+        let tail = NSHostingView(rootView: TailView(side: .right))
+        container.addSubview(tail)
 
-        panel.contentView = effect
+        let bubble = NSHostingView(rootView: ResultPanelView(model: model))
+        container.addSubview(bubble)
+
+        // The character rides on transparency, outside the card entirely.
+        let character = NSHostingView(
+            rootView: SpriteView(animator: model.animator,
+                                 height: PanelChrome.characterHeight))
+        container.addSubview(character)
+
+        panel.contentView = container
         self.panel = panel
-        self.hostingView = hosting
+        self.container = container
+        self.effectView = effect
+        self.bubbleView = bubble
+        self.tailView = tail
+        self.characterView = character
         return panel
     }
 
-    private var hostingView: NSHostingView<ResultPanelView>?
+    private var container: ShapedContainer?
+    private var effectView: NSVisualEffectView?
+    private var bubbleView: NSHostingView<ResultPanelView>?
+    private var tailView: NSHostingView<TailView>?
+    private var characterView: NSHostingView<SpriteView>?
 
-    private func resize(_ panel: NSPanel) {
-        guard let hostingView else { return }
-        hostingView.layoutSubtreeIfNeeded()
-        let fitting = hostingView.fittingSize
-        let height = max(fitting.height, 60)
-        panel.setContentSize(NSSize(width: ResultPanelView.width, height: height))
-    }
+    /// Which flank the bubble is on. Fixed for the duration of a presentation.
+    private var side: BubbleSide = .right
+    /// The character's bottom-left in screen coordinates. The layout's fixed
+    /// point: everything else is positioned relative to it.
+    private var characterOrigin: CGPoint = .zero
 
-    private func position(_ panel: NSPanel, at pointer: CGPoint) {
-        let origin = PanelPlacement.origin(
-            pointer: pointer,
-            panelSize: panel.frame.size,
-            screens: visibleFrames()
-        )
-        panel.setFrameOrigin(NSPoint(x: origin.x, y: origin.y))
+    // MARK: - Layout
+
+    /// Positions character, tail and bubble, then sizes the window around them.
+    ///
+    /// The arrangement itself is `BubbleLayout.geometry` in the core library, so
+    /// it is testable without a window; this method measures the SwiftUI bubble,
+    /// asks for the geometry, and applies it.
+    private func layout() {
+        guard let panel, let container, let effectView,
+              let bubbleView, let tailView, let characterView else { return }
+
+        bubbleView.layoutSubtreeIfNeeded()
+        let bubbleSize = NSSize(width: ResultPanelView.width,
+                                height: max(bubbleView.fittingSize.height, 44))
+
+        let geometry = BubbleLayout.geometry(
+            bubbleSize: bubbleSize,
+            characterSize: CGSize(width: PanelChrome.characterWidth,
+                                  height: PanelChrome.characterHeight),
+            tailSize: CGSize(width: PanelChrome.tailWidth,
+                             height: PanelChrome.tailHeight),
+            side: side,
+            gap: PanelChrome.gap,
+            inset: PanelChrome.shadowInset,
+            tailDropFromTop: PanelChrome.tailDropFromTop)
+
+        let characterRect = geometry.characterRect
+        let bubbleRect = geometry.bubbleRect
+        let tailRect = geometry.tailRect
+        let windowSize = geometry.windowSize
+
+        // Keep the character pinned to its screen position, then clamp the whole
+        // window on-screen. Clamping can still shift the character -- an answer
+        // that grows past the screen edge has to move something -- but it is the
+        // last resort rather than the default.
+        var origin = CGPoint(x: characterOrigin.x - characterRect.minX,
+                             y: characterOrigin.y - characterRect.minY)
+        // gap:0 makes `origin` an identity placement, so this is purely a clamp.
+        origin = PanelPlacement.origin(
+            pointer: CGPoint(x: origin.x, y: origin.y + windowSize.height),
+            panelSize: windowSize,
+            screens: visibleFrames(),
+            gap: 0)
+
+        panel.setFrame(NSRect(origin: origin, size: windowSize), display: true)
+        container.frame = NSRect(origin: .zero, size: windowSize)
+        effectView.frame = bubbleRect
+        bubbleView.frame = bubbleRect
+        tailView.frame = tailRect
+        tailView.rootView = TailView(side: side)
+        characterView.frame = characterRect
+
+        // Only these accept clicks; the rest of the window passes them through.
+        // The tail is included so there is no dead notch between the two.
+        container.interactiveRects = [bubbleRect, tailRect, characterRect]
+
+        // The shadow is derived from content alpha, so it has to be recomputed
+        // whenever the silhouette changes -- which is every streamed delta.
+        panel.invalidateShadow()
     }
 
     private func visibleFrames() -> [CGRect] {
