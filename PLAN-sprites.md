@@ -14,8 +14,10 @@ model can be called directly, which removed fal.ai from the design entirely.
 `generativelanguage.googleapis.com` returns the image bytes inline from a single
 `generateContent` POST. Anything reintroducing a job queue is a step backwards.
 
-**RULE 2 — Slice before removing the background.** Not the other way round. This
-is load-bearing and counter-intuitive; the reasoning is in Stage 1.
+**RULE 2 — Extract the character per cell, do not "remove the background".**
+Slice first, then keep the largest connected component in each cell. Edge flood
+fill and grid detection were both tried and both failed on real generated sheets;
+the evidence is below and the rule exists so it is not re-litigated.
 
 **RULE 3 — One stage, one commit**, matching PLAN.md.
 
