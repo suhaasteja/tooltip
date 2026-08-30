@@ -763,3 +763,30 @@ PNG  (flash)  6/6 cells  bboxes 141-161 x 212-214
 
 Needs one guard: a component spanning >92% of the cell in both axes is a border,
 not a character.
+
+### How much of the JPEG survives into the PNG frames
+
+The pro model is the quality choice but returns JPEG; the frames written are PNG
+either way. Measured on one cell downscaled to 70x79, counting 5-bit colour
+buckets among non-background pixels (real pixel art has few colours, ringing
+invents many):
+
+```
+box-average resize      : 242
+naive nearest-neighbour : 202
+block-centre sampling   : 197
+```
+
+- **Smooth resizing is the actual mistake**, 20% worse than nearest-neighbour.
+  It mixes ringing into every output pixel. `interpolationQuality = .none` in
+  `make-sprites.swift` was already right.
+- **Block-centre sampling helps, but only slightly.** Generated pixel art is a
+  large image whose logical pixels are NxN blocks; sampling centres skips the
+  ringing at block edges. The pitch is recoverable — a histogram of horizontal
+  edge spacings peaked at 6px with multiples at 11-12 and 17-18, giving 5.64.
+- **Most of the residual palette is the model's shading, not JPEG.** ~200 buckets
+  is far more than hand-authored pixel art. Getting to a genuinely small palette
+  needs explicit quantisation, which is separate work.
+
+Recorded because the intuition "sample block centres and the JPEG artefacts
+vanish" is appealing and wrong: it is a 2.5% improvement, not a fix.

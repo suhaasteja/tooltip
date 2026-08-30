@@ -139,6 +139,49 @@ character, and should be rejected rather than kept.
 This handles drawn borders, tinted backgrounds and JPEG ringing in one step, and
 it removes the need for both edge flood fill and grid detection.
 
+### Model choice: pro, and configurable
+
+**Decision: default to `gemini-3-pro-image-preview`.** It produces a genuinely
+varied walk cycle where the flash model's six frames were nearly identical, and
+animation quality is the whole point of the character. The model id is
+configurable, exactly as `LLMConfiguration.model` is — which matters more here
+than for the LLM, because **output format follows the model**, so changing it
+changes the bytes the pipeline receives.
+
+### Getting a trustable PNG out of a JPEG source
+
+The pro model returns JPEG; the frames we write are PNG regardless. The question
+is how much of the JPEG's damage survives into them. Measured, downscaling one
+cell to 70x79 and counting 5-bit colour buckets among non-background pixels —
+real pixel art has few colours, ringing invents many:
+
+```
+box-average resize      : 242
+naive nearest-neighbour : 202
+block-centre sampling   : 197
+```
+
+Three conclusions, in order of how much they matter:
+
+1. **Never smooth-resize.** Box-averaging is 20% worse than nearest-neighbour
+   because it mixes ringing back into every output pixel. The existing script
+   already uses nearest-neighbour with `interpolationQuality = .none`; keep it.
+2. **Block-centre sampling is a real but small win** (197 vs 202, ~2.5%).
+   Generated pixel art is a large image whose logical pixels are NxN blocks, and
+   sampling block centres skips the ringing that lives at block edges. The pitch
+   is recoverable from the image: a histogram of horizontal edge spacings peaked
+   hard at 6px with multiples at 11-12 and 17-18, giving a fractional pitch of
+   5.64. Worth doing, not worth contorting the pipeline for.
+3. **Most of the remaining palette is the model's own shading, not JPEG.** ~200
+   buckets is far more than hand-authored pixel art would use. If "trustable"
+   means a small, crisp palette, that needs an explicit quantisation step
+   (median-cut to 32-64 colours), which is separate work and should be judged on
+   how the result looks rather than on the bucket count.
+
+An earlier draft of this plan claimed block-centre sampling made the artefacts
+vanish. It does not; it improves them slightly. The measurement is above so the
+claim is not repeated.
+
 ### Grid fidelity — Stage 2's gate
 
 Both sheets honoured the requested 2x3 grid: even cells, one character per cell,
@@ -188,7 +231,13 @@ New pipeline, per sheet:
    **largest**. Reject it as a border if it spans >92% of the cell in both axes.
 3. Union bounding box across all kept components, applied to every cell, so
    frames stay aligned and playback does not jitter.
-4. Nearest-neighbour downscale.
+4. Estimate the block pitch from a histogram of horizontal edge spacings, and
+   resample at block centres. Falls back to plain nearest-neighbour when the
+   histogram has no clear peak — the difference is small (197 vs 202 colour
+   buckets), so this must never be allowed to fail loudly.
+5. **Never box-average or otherwise smooth-resize.** It is measurably the worst
+   option (242 buckets) because it mixes JPEG ringing into every output pixel.
+   `interpolationQuality = .none` stays.
 
 Background is "light" rather than "white": threshold around 200, not 250. The
 PNG model's background is tinted and the JPEG model's rings around outlines, so
