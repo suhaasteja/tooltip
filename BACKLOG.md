@@ -56,6 +56,17 @@ Then: `make install && pbs -flush`, relaunch, re-bind shortcuts.
 
 ## 2. Sprite character
 
+> **Partly built.** A first pass ships: the character lives *inside* the existing
+> card, beside the text, driven by `SpriteMood` (`AskAICore`) off `PanelState`.
+> Frames are sliced from `~/Desktop/sprite-sheet-creator` by
+> `scripts/make-sprites.swift`. See NOTES.md for what bit.
+>
+> Still parked: the character standing **outside** the panel with a speech
+> bubble, which is the interesting half. That needs the vibrancy backdrop moved
+> out of the window's `contentView` into SwiftUI, `PanelPlacement` reporting
+> which side it flipped to so a bubble tail can point back at the character, and
+> `resizeToFit` inverted to pin the character instead of the top-left corner.
+
 **Idea:** instead of a text card, a small animated character appears at the
 selected text and delivers the answer in a speech bubble.
 
@@ -97,11 +108,11 @@ text, not down in the Services menu where the pointer ended up.
 - **Per-app Services coverage is unmeasured.** `MANUAL-QA.md` §6 has the table;
   it needs a human clicking through real apps. Do this before making any
   "works everywhere" claim.
-- **No live-API verification.** Everything has been exercised against the mock
-  client, a stubbed `URLProtocol`, and a real local OpenAI-compatible server —
-  but never against a hosted endpoint with a real key.
-- **Streaming is unverified against a live endpoint**, only against the
-  documented SSE shape and a fake local server.
+- **Live-API verification: done for one path only.** `OpenAICompatibleClient`
+  with streaming, against Gemini's compatibility endpoint, through a real
+  Services invocation — HTTP 200, answer rendered. See NOTES.md.
+  **`AnthropicClient` against the real Anthropic API remains unexercised**, and
+  it differs in auth header, body shape, SSE events and `output_config.effort`.
 - **Stage 9 (universal hotkey) not started**, deliberately. See NOTES.md — it
   requires Accessibility, which is incompatible with the App Sandbox. A
   middle path exists: global hotkey that reads the *existing* clipboard

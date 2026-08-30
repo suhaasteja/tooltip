@@ -62,6 +62,9 @@ final class ResultPanel: NSObject {
     func hide() {
         removeDismissMonitors()
         panel?.orderOut(nil)
+        // Before `reset()`, which would otherwise set the mood to `.idle` and
+        // start a fresh (invisible) animation on the way out.
+        model.animator.stop()
         machine.reset()
     }
 

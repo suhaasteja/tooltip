@@ -9,10 +9,19 @@ struct ResultPanelView: View {
     static let width: CGFloat = 380
     static let maxContentHeight: CGFloat = 420
 
+    /// How much horizontal room the character occupies beside the text.
+    static let spriteHeight: CGFloat = 66
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
-            content
+        HStack(alignment: .top, spacing: 10) {
+            // The character sits beside the content, top-aligned, so it stays
+            // put while an answer streams in and grows the column next to it.
+            SpriteView(animator: model.animator, height: Self.spriteHeight)
+
+            VStack(alignment: .leading, spacing: 10) {
+                header
+                content
+            }
         }
         .padding(14)
         .frame(width: Self.width, alignment: .leading)
@@ -20,9 +29,6 @@ struct ResultPanelView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: "sparkle")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
             Text("Ask AI")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -44,10 +50,8 @@ struct ResultPanelView: View {
             EmptyView()
 
         case .loading(let selection):
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Thinking…").font(.callout).foregroundStyle(.secondary)
-            }
+            // No ProgressView: the character's walk cycle is the spinner now.
+            Text("Thinking…").font(.callout).foregroundStyle(.secondary)
             selectionEcho(selection)
 
         case .success(_, let answer):

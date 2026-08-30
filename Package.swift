@@ -14,7 +14,19 @@ let package = Package(
         // All pure logic lives here so `swift test` can exercise it.
         .target(name: "AskAICore", swiftSettings: swift5),
         // Thin AppKit shell.
-        .executableTarget(name: "AskAI", dependencies: ["AskAICore"], swiftSettings: swift5),
+        //
+        // `Sprites/` is excluded rather than declared as a SwiftPM resource.
+        // `Bundle.module` in an *executable* target resolves against
+        // `Bundle.main.bundleURL` -- the .app root -- not `Contents/Resources`,
+        // so the generated accessor can never find its bundle inside a
+        // hand-assembled app and traps at launch. `scripts/bundle.sh` copies the
+        // frames to `Contents/Resources/Sprites` and the app uses `Bundle.main`.
+        // See NOTES.md.
+        .executableTarget(
+            name: "AskAI",
+            dependencies: ["AskAICore"],
+            exclude: ["Sprites"],
+            swiftSettings: swift5),
         .testTarget(name: "AskAICoreTests", dependencies: ["AskAICore"], swiftSettings: swift5),
     ]
 )

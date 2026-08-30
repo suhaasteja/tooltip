@@ -29,6 +29,12 @@ for res in "${BIN_PATH}"/*.bundle; do
   cp -R "$res" "${BUNDLE}/Contents/Resources/"
 done
 
+# Sprite frames, copied by hand rather than declared as SwiftPM resources:
+# `Bundle.module` in an executable target looks beside the executable's *bundle
+# root*, which is wrong for a .app, and it traps rather than degrading. Putting
+# them in Contents/Resources means plain `Bundle.main` lookups work. See NOTES.md.
+cp -R "Sources/AskAI/Sprites" "${BUNDLE}/Contents/Resources/Sprites"
+
 printf 'APPL????' > "${BUNDLE}/Contents/PkgInfo"
 
 echo "==> codesign (ad-hoc, with entitlements)"

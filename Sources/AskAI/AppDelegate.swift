@@ -20,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installStatusItem()
         installServicesProvider()
         pointerTracker.start()
+        // Decode the sprite PNGs now, not on the first invocation while the
+        // user is waiting for an answer.
+        SpriteLoader.preload()
         resultPanel.onRetry = { [weak self] selection in
             guard let self else { return }
             self.ask(selection: selection, slot: self.lastSlot)
@@ -29,6 +32,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["ASKAI_KEYCHAIN_SELFTEST"] == "1" {
             runKeychainSelfTest()
         }
+        if ProcessInfo.processInfo.environment["ASKAI_SPRITE_PREVIEW"] == "1" {
+            startSpritePreview()
+        }
+        if let dir = ProcessInfo.processInfo.environment["ASKAI_SPRITE_SNAPSHOT"] {
+            SpriteSnapshot.run(into: dir)
+        }
+    }
+
+    // MARK: - Sprite preview
+
+    private var previewTimer: Timer?
+
+    /// Cycles the panel through every state so the character can be iterated on
+    /// without installing to /Applications and right-clicking in another app.
+    ///
+    /// Drives the real `PanelViewModel`, not a parallel fake, so what you see is
+    /// what a genuine invocation produces. `ASKAI_SPRITE_PREVIEW=1`.
+    private func startSpritePreview() {
+        Log.app.notice("sprite preview mode")
+        let machine = resultPanel.machine
+        var step = 0
+
+        let advance: () -> Void = { [weak self] in
+            guard let self else { return }
+            let id = machine.currentRequestID
+            switch step % 4 {
+            case 0:
+                machine.startLoading(selection: "The mitochondria is the powerhouse of the cell.")
+            case 1:
+                machine.finish(
+                    requestID: id,
+                    answer: "Mitochondria generate most of the chemical energy a cell "
+                        + "needs, which is why they get called its powerhouse.")
+            case 2:
+                machine.fail(requestID: id, message: "Rate limited. Try again in a moment.",
+                             retryable: true)
+            default:
+                machine.showEmptySelection()
+            }
+            step += 1
+            self.resultPanel.show(at: NSEvent.mouseLocation)
+        }
+
+        advance()
+        // .common so it keeps running while menus track.
+        let timer = Timer(timeInterval: 2.5, repeats: true) { _ in advance() }
+        RunLoop.main.add(timer, forMode: .common)
+        previewTimer = timer
     }
 
     /// Round-trips a throwaway secret through the Keychain and logs the result.

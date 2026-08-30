@@ -201,7 +201,11 @@ so both modes work.
 ## Known gaps
 
 - Per-app Services coverage is unmeasured (see above).
-- The end-to-end path has been verified with the mock client and with real
-  Services dispatch; a run against a live API key is still a manual step.
-- Streaming is implemented and unit-tested against the SSE wire format, but has
-  not been exercised against the live endpoint.
+- The end-to-end path is verified live for the **OpenAI-compatible** client with
+  streaming, against Gemini's compatibility endpoint: real Services dispatch,
+  HTTP 200, answer rendered in the panel. See NOTES.md for the exact
+  configuration.
+- **`AnthropicClient` has still never run against the real Anthropic API.**
+  Different auth header, request body and SSE event shape, plus the
+  `output_config.effort` field only it sends — so the verification above does
+  not transfer to it.

@@ -18,17 +18,29 @@ final class PanelModel: ObservableObject {
     /// Invoked when the user dismisses the panel.
     var onDismiss: (() -> Void)?
 
+    /// Drives the character. Owned here rather than by the view so playback
+    /// survives SwiftUI re-creating the view, and so `ResultPanel.hide()` has
+    /// something to stop.
+    let animator = SpriteAnimator()
+
     init() {
         machine.onChange = { [weak self] newState in
             // The state machine is driven from the main thread everywhere in
             // this app, but async LLM completions land off it -- hop
             // defensively rather than trusting every future call site.
             if Thread.isMainThread {
-                self?.state = newState
+                self?.apply(newState)
             } else {
-                DispatchQueue.main.async { self?.state = newState }
+                DispatchQueue.main.async { self?.apply(newState) }
             }
         }
+    }
+
+    /// Publishes the new state and points the character at the matching mood.
+    /// Main thread only; every caller has already hopped.
+    private func apply(_ newState: PanelState) {
+        state = newState
+        animator.play(SpriteMood.mood(for: newState))
     }
 
     /// Briefly true after a copy, to swap the button label for feedback.

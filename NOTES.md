@@ -389,3 +389,135 @@ Fix: `installMainMenu()` builds a minimal App + Edit menu with `target: nil`
 items so they travel the responder chain to the focused field. Note the menu
 title must be exactly `"Edit"`, and the actions must be string selectors —
 `#selector(NSText.copy(_:))` collides with `NSObject.copy()`.
+
+---
+
+## Sprite character (BACKLOG.md §2), first pass
+
+### `Bundle.module` cannot work in a hand-assembled .app
+
+The obvious way to ship the sprite frames — declare them as SwiftPM
+`resources:` and read them through `Bundle.module` — fails at launch:
+
+```
+AskAI/resource_bundle_accessor.swift:12: Fatal error: could not load resource
+bundle: from /…/dist/AskAI.app/AskAI_AskAI.bundle or /…/.build/…/AskAI_AskAI.bundle
+```
+
+SwiftPM's generated accessor for an **executable** target searches
+`Bundle.main.bundleURL`, which for an app bundle is the `.app` **root**, not
+`Contents/Resources`. `bundle.sh` puts the generated `.bundle` in
+`Contents/Resources` (where it belongs, and where `codesign` expects it), so the
+accessor looks in a place nothing will ever be. Worse, it calls `fatalError`
+rather than returning nil, so the app dies on launch instead of degrading.
+
+Fix: don't use SwiftPM resources at all. `Sources/AskAI/Sprites` is `exclude:`d
+from the target, `bundle.sh` copies it to `Contents/Resources/Sprites`, and
+`SpriteLoader` uses plain `Bundle.main`. `exclude:` (rather than just leaving the
+files there) is what silences SwiftPM's "unhandled files" warning.
+
+This only bites because the app is hand-bundled; an Xcode target would not hit
+it. It is the same family as appendix #10 — a loose SwiftPM build is not the
+thing that ships.
+
+### Screenshots need TCC; rendering our own view does not
+
+Verifying how the panel looks by `screencapture` fails without the Screen
+Recording permission (`could not create image from display`), and granting TCC to
+a frequently re-signed ad-hoc binary is the loop PLAN.md Stage 9 warns about.
+
+`ASKAI_SPRITE_SNAPSHOT=<dir>` instead renders `ResultPanelView` into an
+`NSBitmapImageRep` via `cacheDisplay(in:to:)` and writes PNGs. No permission, and
+deterministic across runs. `make snapshot` wraps it.
+
+Two caveats worth knowing:
+
+1. **The app is sandboxed, so it can only write inside its container.** Passing an
+   arbitrary output path silently produces `NSPOSIXErrorDomain Code=2` for every
+   file. `make snapshot` writes to
+   `~/Library/Containers/com.yourname.AskAI/Data/tmp/shots` and copies out.
+2. **`NSVisualEffectView` vibrancy does not render offscreen** — it samples what
+   is behind the window, and offscreen there is nothing. The snapshots draw on a
+   flat grey instead. They are honest about layout, sizing and the character;
+   they are not a preview of the real material.
+
+### Source art needed background removal and a shared crop
+
+The sheets in `~/Desktop/sprite-sheet-creator/assets` are opaque white-background
+PNGs (`hasAlpha: no`) — that project removes backgrounds at runtime via Bria, but
+the saved assets never went through it. Two non-obvious requirements in
+`scripts/make-sprites.swift`:
+
+- **Flood fill from the border, not a white threshold.** The character contains
+  white (eyes, the guitar pickguard); a plain "near-white is transparent" pass
+  punches holes through it. Only white *connected to the edge* is background.
+- **One union bounding box for every frame of a sheet.** Trimming each frame to
+  its own content re-centres the character per frame, which reads as jitter
+  during playback.
+
+`walk-sprite-sheet.png` in that directory is Goku — a copyrighted character, not
+usable here. The guitarist in `sprite_1/2/3.png` is consistent across all three
+sheets and is what got vendored.
+
+### Only the thinking mood loops
+
+`SpriteMood.animation` marks every mood except `.thinking` as non-looping, and
+`restingFrame` is the **last** frame rather than the first. The panel is
+something the user reads; a character still moving under a paragraph competes
+with the text, and at ~30 invocations a day that stops being charming fast. The
+`.talking` sequence is therefore celebrate-then-settle, so Reduce Motion (and the
+settled state) shows a calm character rather than a frozen mid-leap.
+
+Playback is a `Timer` on `.common`, not `TimelineView(.animation)`, which would
+redraw at display rate for as long as the view exists — unacceptable in a process
+that stays resident for weeks. Single-frame moods never start a timer at all
+(`needsAnimation`), and `ResultPanel.hide()` calls `animator.stop()`.
+
+### Not done in this pass
+
+The character is *inside* the existing card, beside the text. The BACKLOG idea of
+a character standing outside the panel with a speech bubble needs the vibrancy
+backdrop moved from the window's `contentView` into SwiftUI, and needs
+`PanelPlacement` to report which side it flipped to so a bubble tail can point
+back. `resizeToFit` would also have to invert: it currently pins the top-left and
+grows down, whereas a character-anchored panel must pin the character.
+
+### First live hosted-API verification (with the sprite in place)
+
+Installed to `/Applications`, `pbs -flush`ed, and driven with `make probe`. Real
+Services dispatch, real network:
+
+```
+slot=2 selection chars=127 truncated=false
+asking slot=2 chars=127
+CFNetwork Summary: response_status=200, response_bytes=2129
+AskAI window w=380.0 h=111.0   (loading)
+AskAI window w=380.0 h=131.0   (answer rendered, then stable)
+```
+
+This closes two gaps the README and BACKLOG §3 had both carried since the build:
+"no live-API verification" and "streaming unverified against a live endpoint" —
+but **only for the path actually configured on this machine**, which was:
+
+```
+llm.provider = openai        llm.streaming = 1
+llm.presetID = gemini        llm.model = gemini-3.5-flash
+llm.baseURL  = https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+```
+
+So what is now verified live is `OpenAICompatibleClient`, streaming, against
+Gemini's OpenAI-compatible endpoint. **`AnthropicClient` against the real
+Anthropic API is still unexercised** — different auth header, different request
+body, different SSE event shape, and the `output_config.effort` field that only
+that client sends. Do not read this as "the LLM layer is verified".
+
+Caveat on the streaming evidence: window height was sampled once a second while
+the response took ~2s, so the panel was observed growing 111 -> 131 but the
+individual delta-by-delta growth was not. The stream produced a rendered answer;
+that is the claim.
+
+One transient worth recording: the very first probe after launch returned
+`NSPerformService -> true` and logged the service handler reaching the provider,
+but no `asking slot=` line and no on-screen window. Every subsequent invocation
+behaved. Most likely the global mouse-down dismiss monitor catching a stray
+click during app warm-up. Not reproduced since; noted rather than explained.

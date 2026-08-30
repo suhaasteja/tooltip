@@ -18,7 +18,8 @@ TEST_FLAGS := --no-parallel \
               -Xlinker -F -Xlinker $(DEV_FRAMEWORKS) \
               -Xlinker -rpath -Xlinker $(DEV_FRAMEWORKS)
 
-.PHONY: build test bundle run install uninstall clean entitlements services logs probe
+.PHONY: build test bundle run install uninstall clean entitlements services logs probe \
+        sprites preview snapshot
 
 build:
 	swift build
@@ -65,3 +66,27 @@ clean:
 # window + which app is actually frontmost. Verification without UI automation.
 probe:
 	@swift scripts/fire-service.swift "$(TEXT)"
+
+# Re-slice the sprite sheets into transparent frames. Only needed when the
+# source art changes; Sources/AskAI/Sprites is committed.
+sprites:
+	@swift scripts/make-sprites.swift
+
+# Cycle the panel through every state on a timer, so the character can be
+# iterated on without installing and right-clicking in another app.
+preview: bundle
+	@pkill -x $(APP_NAME) 2>/dev/null || true
+	ASKAI_SPRITE_PREVIEW=1 ASKAI_MOCK_LLM=1 $(BUNDLE)/Contents/MacOS/$(APP_NAME)
+
+# Render each panel state to a PNG. Uses our own bitmap rather than a
+# screenshot, so it needs no Screen Recording permission and is deterministic.
+# The app is sandboxed and cannot write outside its container, hence the copy.
+SNAPSHOT_CONTAINER := $(HOME)/Library/Containers/com.yourname.AskAI/Data/tmp/shots
+SNAPSHOT_OUT := dist/snapshots
+snapshot: bundle
+	@pkill -x $(APP_NAME) 2>/dev/null || true
+	@rm -rf "$(SNAPSHOT_CONTAINER)" "$(SNAPSHOT_OUT)"
+	@ASKAI_SPRITE_SNAPSHOT="$(SNAPSHOT_CONTAINER)" $(BUNDLE)/Contents/MacOS/$(APP_NAME)
+	@mkdir -p "$(SNAPSHOT_OUT)"
+	@cp "$(SNAPSHOT_CONTAINER)"/*.png "$(SNAPSHOT_OUT)/"
+	@echo "==> copied to $(SNAPSHOT_OUT)"
