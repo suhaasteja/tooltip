@@ -69,6 +69,9 @@ Then: `make install && pbs -flush`, relaunch, re-bind shortcuts.
 >
 > Still open: the bubble has no scroll affordance of its own beyond the
 > inherited 420pt cap, and the character does not persist between invocations.
+>
+> **Next:** letting users generate their own character from a prompt, the way
+> `~/Desktop/sprite-sheet-creator` does. Staged plan in `PLAN-sprites.md`.
 
 **Idea:** instead of a text card, a small animated character appears at the
 selected text and delivers the answer in a speech bubble.
@@ -124,3 +127,50 @@ text, not down in the Services menu where the pointer ended up.
   not make this redundant — bring-your-own-model, local LLMs and editable
   prompts are all things it will not do — but worth knowing before investing
   in branding.
+
+---
+
+## 4. Distribution
+
+Investigated 2026-08-30. The app is already sandboxed, which is the expensive
+prerequisite most projects fail on, so the remaining work is signing and
+packaging rather than architecture.
+
+**The Keychain password prompt is a developer problem, not a user problem.** It
+fires when an app reads an item created under a *different* code identity, and
+ad-hoc signing mints a new identity every build. A user installing a signed
+build never sees it: their app creates the item itself and is automatically on
+its ACL. This does not block shipping. See NOTES.md.
+
+| Option | Cost | User experience | What this codebase still needs |
+|---|---|---|---|
+| **A. Source + `make install`** | free | needs CLT (~2 GB) and a terminal | nothing — works today, `skills/askai-setup` covers it |
+| **B. Unsigned .zip** | free | Gatekeeper blocks; right-click → Open, or strip the quarantine xattr | nothing, but a bad first impression |
+| **C. Developer ID + notarised** | $99/yr | double-click, opens clean | hardened runtime, notarise step, icon, real bundle id |
+| **D. Homebrew Cask** | free, on top of C | `brew install --cask` | a tap plus a GitHub release |
+| **E. Mac App Store** | $99/yr | best trust, worst iteration | C's work plus review and an App ID — **and it is the only route that unlocks the data protection keychain** |
+
+### Four things that must happen before anything public
+
+1. **`CFBundleIdentifier` is still the placeholder `com.yourname.AskAI`.** This
+   puts §1 (rename) on the critical path: changing it after release orphans
+   every user's stored key, settings container and `pbs` registration. Cheap
+   now, breaking later.
+2. **No hardened runtime.** `scripts/bundle.sh` does not pass
+   `--options runtime`, and notarisation rejects builds without it. One flag,
+   but it interacts with the sandbox and needs testing.
+3. **No app icon.** `Info.plist` has no `CFBundleIconFile`.
+4. **Per-app Services coverage is still unmeasured.** README deliberately
+   refuses to claim "works everywhere"; in public that gap becomes support load.
+
+### Recommendation
+
+Ship **A** properly first — the audience for a bring-your-own-key Services tool
+is technical, it costs nothing, and it surfaces the real app-coverage picture
+before any money is spent. Then **C + D** for reach. **E** only for the data
+protection keychain or App Store trust; the review friction is real for an app
+whose core feature is "bring your own LLM key".
+
+Caveat on C and E: both bind releases to a paid Apple account, and certificates
+expire (Developer ID ~5 years, Development ~1). That is a renewal obligation on
+anything already shipped.
