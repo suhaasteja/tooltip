@@ -914,3 +914,61 @@ Caveat worth keeping: five sheets from one model with one prompt family. A user
 typing an arbitrary character description will find cases these did not. The
 built-in set remains the fallback, and Stage 4's preview-before-save is what
 stops a bad generation reaching the panel.
+
+## Sprite generation client (PLAN-sprites.md Stage 3)
+
+`GeminiImageClient` talks to `generateContent` directly — no SDK, no fal.ai, no
+job queue. `SpriteGenerationJob` drives a one-line description through the model
+and out as an installable `SpriteSet` plus its frames, and lives in `AskAICore`
+so the whole flow is testable against a fake client with no network.
+
+Two things the client must not get wrong, both covered by tests:
+
+- **Auth is `x-goog-api-key`, not `Authorization: Bearer`.** The
+  OpenAI-compatible client talks to the *same host* with the other scheme, so
+  mixing them up would produce a confusing 401.
+- **The response mime type is carried, never assumed.** Format follows the
+  model, so anything writing bytes to disk must read it rather than guess `.png`.
+
+A 200 carrying no image is a safety refusal, and the model explains itself in a
+text part. That text is surfaced to the user, because "the model returned no
+image" is useless next to what it actually said, and the error is marked
+non-retryable — a refusal will not succeed on a second attempt.
+
+### Verified live, including the path stubs cannot reach
+
+One real run, `"a small round owl wearing tiny round spectacles"`:
+
+```
+[  0.0s] Designing the character…
+[ 16.8s] Generating walk (1 of 2)…
+[ 36.0s] Cutting out frames…
+[ 36.4s] Generating pose (2 of 2)…
+[ 52.6s] Cutting out frames…
+==> 10 frames, 2 sheets, 53.1s
+==> moods: confused, idle, searching, talking, thinking
+```
+
+The point of doing this live was the **reference-image path**: every sheet is
+generated from the character image rather than the text, which is what holds
+identity, and sending a generated image back as `inline_data` is a body shape no
+stub can validate. It works, and identity held — the same owl, palette and
+spectacles across both sheets. There is visible drift in proportion and detail
+between sheets, which is the documented risk rather than a defect.
+
+~53 seconds for a full character. That is why Stage 4 needs step-named progress
+and a working cancel.
+
+### Known limitation: the character changes size between moods
+
+Each sheet is union-cropped independently, so the character fills a different
+share of its frame depending on which sheet it came from:
+
+```
+walk-0  131px of 132  (99%)      pose-0  117px of 132  (88%)
+walk-3  120px of 132  (90%)      pose-1  132px of 132  (100%)
+```
+
+Rendered at a fixed height, that is a ~12% size jump when the mood changes.
+The fix is to normalise scale *across* sheets instead of within each one, which
+needs both sheets in hand before either is cut. Deferred to Stage 6.

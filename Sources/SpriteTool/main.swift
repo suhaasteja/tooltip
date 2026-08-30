@@ -117,6 +117,12 @@ func cut(
 
 let args = Array(CommandLine.arguments.dropFirst())
 
+// `generate "<description>" <outdir>` runs the real job against the live API.
+if args.first == "generate", args.count >= 3 {
+    let status = await GenerateCommand.run(description: args[1], outputDir: args[2])
+    exit(status)
+}
+
 // `evaluate <dir>` scores every sheet named in <dir>/manifest.json against
 // PLAN-sprites.md Stage 2's pass criteria.
 if args.first == "evaluate", args.count >= 2 {

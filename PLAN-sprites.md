@@ -301,7 +301,11 @@ three sheets.
 
 ---
 
-## Stage 3 — Gemini image client
+## Stage 3 — Gemini image client — **DONE**
+
+> Shipped: `SpriteGeneratorClient` + `GeminiImageClient` + `SpriteGenerationJob`
+> in `AskAICore`, and `SpriteTool generate` for live runs. 194 tests (was 170).
+> One real generation verified end to end in 53s. See NOTES.md.
 
 - `SpriteGeneratorClient` protocol + `GeminiImageClient` in `AskAICore`,
   mirroring the LLM layer's shape because it already works and is tested.
@@ -384,6 +388,11 @@ built-in rather than showing an empty character or crashing.
   lose the smaller piece — worth a test in Stage 2.
 - **Quality is unbounded.** Users will generate bad characters and blame the
   app. Preview-before-save is the mitigation.
+- **Character size jumps between moods.** Each sheet is union-cropped
+  independently, so the character fills 87-100% of its frame depending on which
+  sheet it came from — measured at ~12% between the walk and pose sheets of one
+  live generation. Fixing it means normalising scale *across* sheets rather than
+  within each. Deferred to Stage 6; noted here so it is not rediscovered.
 - **`gemini-3-pro-image-preview` is a preview model.** Preview endpoints get
   renamed and retired. The model id must be configurable, not hardcoded, exactly
   as `LLMConfiguration.model` already is — and since output format follows the

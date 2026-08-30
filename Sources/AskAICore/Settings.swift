@@ -194,6 +194,18 @@ public final class SettingsStore {
         set { defaults.set(newValue, forKey: Key.spriteSet) }
     }
 
+    /// Whether the configured LLM key can also be used for image generation.
+    ///
+    /// True when the app is already pointed at Google: a Google AI Studio key
+    /// works for both the chat endpoint and `generateContent`, so those users
+    /// need not paste a second credential. Everyone else does.
+    ///
+    /// Deliberately checks the host rather than the preset id, because the base
+    /// URL is user-editable and the preset is only a UI hint.
+    public var llmKeyWorksForImages: Bool {
+        baseURL.host?.hasSuffix("generativelanguage.googleapis.com") ?? false
+    }
+
     /// The active set, or the built-in one if it is missing, unreadable, or has
     /// lost its frames.
     ///
