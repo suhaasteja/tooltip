@@ -223,7 +223,11 @@ hand you a character.
 
 ---
 
-## Stage 1 — Frame extraction into the app, largest-component
+## Stage 1 — Frame extraction into the app — **DONE**
+
+> Shipped as `SpriteExtractor` in `AskAICore`, with the script replaced by the
+> `SpriteTool` target so there is one implementation. 170 tests (was 157).
+> Vendored frames and panel snapshots both byte-identical. See NOTES.md.
 
 Port `scripts/make-sprites.swift` into `AskAICore` as pure functions, **and
 replace the algorithm while porting**. Edge flood fill is kept only for the

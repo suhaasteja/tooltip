@@ -835,3 +835,45 @@ installed into the container, and all three directions confirmed from logs:
 The load is logged unconditionally, not just on failure. An absent warning is
 much weaker evidence than a present confirmation, and "which character is
 loaded" is the first thing worth knowing when one looks wrong.
+
+## Frame extraction moved into the app (PLAN-sprites.md Stage 1)
+
+`SpriteExtractor` in `AskAICore` replaces the script's whole-sheet flood fill.
+`scripts/make-sprites.swift` is gone; `Sources/SpriteTool` is a thin CLI over the
+same code, because a loose `swift scripts/…` script cannot import the package and
+duplicating the logic was the thing to avoid.
+
+The rule is **subtractive**, which is the part worth remembering: rather than
+"find the character", it drops what is definitely *not* character — the drawn
+cell border (a component spanning >92% of the cell in both axes) and specks below
+2% of the main mass — and keeps the rest. Then it fills enclosed holes, so
+background-coloured pixels *inside* the outline (the guitarist's eyes, the light
+face of his guitar) survive.
+
+Keeping only the single largest component would amputate a detached limb or a
+held object. There is a synthetic test for that case; no real sheet has needed it
+yet, so it is a guard rather than a fix.
+
+### A misdiagnosis worth recording
+
+A generated robot's legs looked missing in the extracted frame, and the
+multi-component change above was made in response. Measuring afterwards showed
+the frame's opaque rows ran 24...130 of 0...131 — transparent margin at the
+bottom, so nothing was clipped, and the output was byte-identical before and
+after the change. The legs were always there and were never a separate
+component; the frames just looked truncated at contact-sheet size.
+
+The lesson is the cheap one: check the pixel extents before changing an
+algorithm on the strength of a thumbnail.
+
+### Regression guards
+
+Both held, and both are the point of the stage:
+
+- `make sprites` reproduces the committed vendored frames **byte-identically**,
+  using `Options.vendored` (threshold 235, no pixel-grid snapping) to match how
+  they were originally cut.
+- `make snapshot` output is byte-identical, so nothing about the panel changed.
+
+Generated sheets, which the old algorithm could not handle at all, now extract
+6/6 cells cleanly on both the JPEG and the PNG sample.
