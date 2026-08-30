@@ -20,16 +20,28 @@ public struct GeneratedImage: Equatable, Sendable {
 /// Deliberately narrow, like `LLMClient`: the app only needs one image at a
 /// time, and a small surface keeps a fake trivial to write.
 public protocol SpriteGeneratorClient: Sendable {
-    /// Generates an image from text.
-    func generate(prompt: String) async throws -> GeneratedImage
-
-    /// Generates an image from text *plus* a reference image.
+    /// Generates an image.
     ///
-    /// This is how character identity is held across sheets. Generating each
-    /// sheet from the text prompt alone produces a visibly different character
-    /// every time; passing the first image back in is what makes the walk cycle
-    /// and the pose sheet show the same person.
-    func generate(prompt: String, reference: GeneratedImage) async throws -> GeneratedImage
+    /// - Parameters:
+    ///   - reference: an earlier image to keep the character consistent with.
+    ///     This is how identity is held across sheets: generating each sheet
+    ///     from the text prompt alone produces a visibly different character
+    ///     every time.
+    ///   - aspectRatio: **per request, not per client.** The requested grid and
+    ///     the aspect ratio have to agree — asking for a 2x2 grid at 4:3 gets a
+    ///     3x2 sheet back, which then slices wrong. See NOTES.md.
+    func generate(
+        prompt: String, reference: GeneratedImage?, aspectRatio: String?
+    ) async throws -> GeneratedImage
+}
+
+public extension SpriteGeneratorClient {
+    func generate(prompt: String) async throws -> GeneratedImage {
+        try await generate(prompt: prompt, reference: nil, aspectRatio: nil)
+    }
+    func generate(prompt: String, reference: GeneratedImage) async throws -> GeneratedImage {
+        try await generate(prompt: prompt, reference: reference, aspectRatio: nil)
+    }
 }
 
 /// Everything that can go wrong, mapped to something a user can act on.
@@ -142,20 +154,16 @@ public final class GeminiImageClient: SpriteGeneratorClient, @unchecked Sendable
         self.session = session
     }
 
-    public func generate(prompt: String) async throws -> GeneratedImage {
-        try await send(prompt: prompt, reference: nil)
-    }
-
     public func generate(
-        prompt: String, reference: GeneratedImage
+        prompt: String, reference: GeneratedImage?, aspectRatio: String?
     ) async throws -> GeneratedImage {
-        try await send(prompt: prompt, reference: reference)
+        try await send(prompt: prompt, reference: reference, aspectRatio: aspectRatio)
     }
 
     // MARK: - Request
 
     public func makeRequest(
-        prompt: String, reference: GeneratedImage?
+        prompt: String, reference: GeneratedImage?, aspectRatio: String? = nil
     ) throws -> URLRequest {
         guard let apiKey, !apiKey.isEmpty else { throw SpriteGeneratorError.missingAPIKey }
 
@@ -185,7 +193,7 @@ public final class GeminiImageClient: SpriteGeneratorClient, @unchecked Sendable
             "contents": [["parts": parts]],
             "generationConfig": [
                 "imageConfig": [
-                    "aspectRatio": configuration.aspectRatio,
+                    "aspectRatio": aspectRatio ?? configuration.aspectRatio,
                     "imageSize": configuration.imageSize,
                 ]
             ],
@@ -194,8 +202,11 @@ public final class GeminiImageClient: SpriteGeneratorClient, @unchecked Sendable
         return request
     }
 
-    private func send(prompt: String, reference: GeneratedImage?) async throws -> GeneratedImage {
-        let request = try makeRequest(prompt: prompt, reference: reference)
+    private func send(
+        prompt: String, reference: GeneratedImage?, aspectRatio: String?
+    ) async throws -> GeneratedImage {
+        let request = try makeRequest(
+            prompt: prompt, reference: reference, aspectRatio: aspectRatio)
 
         let data: Data
         let response: URLResponse

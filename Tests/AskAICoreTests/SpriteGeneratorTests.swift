@@ -190,20 +190,18 @@ struct GeminiImageClientTests {
 private final class FakeGenerator: SpriteGeneratorClient, @unchecked Sendable {
     var prompts: [String] = []
     var references: [GeneratedImage?] = []
+    var aspectRatios: [String?] = []
     var failAfter: Int?
 
     let image = GeneratedImage(data: Data([1, 2, 3]), mimeType: "image/jpeg")
 
-    func generate(prompt: String) async throws -> GeneratedImage {
-        try record(prompt, nil)
-    }
-    func generate(prompt: String, reference: GeneratedImage) async throws -> GeneratedImage {
-        try record(prompt, reference)
-    }
-    private func record(_ prompt: String, _ reference: GeneratedImage?) throws -> GeneratedImage {
+    func generate(
+        prompt: String, reference: GeneratedImage?, aspectRatio: String?
+    ) async throws -> GeneratedImage {
         if let failAfter, prompts.count >= failAfter { throw SpriteGeneratorError.rateLimited }
         prompts.append(prompt)
         references.append(reference)
+        aspectRatios.append(aspectRatio)
         return image
     }
 }
@@ -253,6 +251,20 @@ struct SpriteGenerationJobTests {
         #expect(client.references[2] != nil)
     }
 
+    /// The grid the prompt asks for and the aspect ratio requested have to
+    /// agree. They did not: `SpriteSheetSpec.aspectRatio` was dead data, so a
+    /// 2x2 pose sheet was requested at 4:3 and came back as 3x2, which then
+    /// sliced across frame boundaries and produced mangled halves of two owls.
+    @Test("each sheet's aspect ratio reaches the request")
+    func aspectRatioReachesTheClient() async throws {
+        let client = FakeGenerator()
+        _ = try await run(client: client)
+        // [character, thinking 2x3, poses 2x2]
+        #expect(client.aspectRatios.count == 3)
+        #expect(client.aspectRatios[1] == "4:3", "the 3x2 thinking sheet needs a wide frame")
+        #expect(client.aspectRatios[2] == "1:1", "the 2x2 pose sheet needs a square frame")
+    }
+
     @Test("produces frames for every mood the panel needs")
     func producesAllMoods() async throws {
         let output = try await run(client: FakeGenerator())
@@ -293,14 +305,60 @@ struct SpriteGenerationJobTests {
 
     @Test("the style suffix is appended but the description is preserved")
     func promptsCarryStyleAndDescription() {
-        let walk = SpritePrompts.walk(character: "a tiny dragon")
-        #expect(walk.contains("a tiny dragon"))
-        #expect(walk.contains("2x3 grid"))
-        #expect(walk.contains(SpritePrompts.style))
+        let rendered = SpritePrompts.render(
+            template: SpritePrompts.defaultThinkingTemplate, character: "a tiny dragon")
+        #expect(rendered.contains("a tiny dragon"))
+        #expect(rendered.contains("2x3 grid"))
+        #expect(rendered.contains(SpritePrompts.style))
+        #expect(!rendered.contains(SpritePrompts.placeholder), "placeholder left unfilled")
+    }
+
+    /// The whole point of the redesign: this app explains highlighted words, so
+    /// the character ponders and explains. Walking on the spot while an answer
+    /// loads reads as filler.
+    @Test("the default actions are thinking and explaining, not walking")
+    func actionsSuitTheApp() {
+        let thinking = SpritePrompts.defaultThinkingTemplate.lowercased()
+        #expect(thinking.contains("thinking") || thinking.contains("pondering"))
+        #expect(thinking.contains("do not show walking"))
+
+        let poses = SpritePrompts.defaultPosesTemplate.lowercased()
+        #expect(poses.contains("explaining"))
+        #expect(!poses.contains("celebrat"), "celebrating an answer is the wrong idiom")
+    }
+
+    /// A template that lost its placeholder would otherwise generate a character
+    /// nobody asked for.
+    @Test("a template missing the placeholder still gets the description")
+    func missingPlaceholderStillDescribes() {
+        let rendered = SpritePrompts.render(
+            template: "Draw six frames in a 2x3 grid.", character: "a tiny dragon")
+        #expect(rendered.contains("a tiny dragon"))
+    }
+
+    @Test("the poses sheet keeps the mood order the job maps by position")
+    func poseOrderIsDocumented() {
+        let poses = SpritePrompts.defaultPosesTemplate
+        let idle = try! #require(poses.range(of: "Top-left"))
+        let explaining = try! #require(poses.range(of: "Top-right"))
+        let puzzled = try! #require(poses.range(of: "Bottom-left"))
+        let searching = try! #require(poses.range(of: "Bottom-right"))
+        #expect(idle.lowerBound < explaining.lowerBound)
+        #expect(explaining.lowerBound < puzzled.lowerBound)
+        #expect(puzzled.lowerBound < searching.lowerBound)
     }
 
     /// Both models draw cell borders regardless, so the prompt must not claim to
     /// prevent them — the extractor removes them instead.
+    @Test("the thinking loop is slower than a walk cycle")
+    func thinkingLoopIsPaced() async throws {
+        let output = try await run(client: FakeGenerator())
+        let thinking = try #require(output.set.animations[SpriteMood.thinking.rawValue])
+        // Pondering at walking speed reads as agitation.
+        #expect(thinking.frameDuration >= 0.15)
+        #expect(thinking.loops)
+    }
+
     @Test("prompts do not promise the model will omit borders")
     func promptDoesNotAskForNoBorders() {
         #expect(!SpritePrompts.style.lowercased().contains("no border"))

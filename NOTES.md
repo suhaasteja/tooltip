@@ -1016,3 +1016,54 @@ above.
 **Not verified: the buttons.** Generate / cancel / keep / discard need a human
 clicking them. The logic behind each is tested, and the end-to-end path is
 proven, but the wiring from button to model has only been read, not exercised.
+
+## The character now thinks instead of walking
+
+The first draft inherited walk/jump/attack from `~/Desktop/sprite-sheet-creator`.
+That is a **platformer's** vocabulary, and this app explains highlighted words: a
+character walking on the spot while an explanation loads reads as filler, and
+celebrating when the answer arrives is the wrong gesture entirely.
+
+The two sheets are now:
+
+- **thinking** (6 frames, looping) — a ponder cycle: hand rising to the chin,
+  resting there with eyes glancing up, head tilting, a finger tapping, returning.
+  The prompt explicitly says "Do not show walking", because the model will
+  otherwise reach for a walk cycle when asked for six frames of a character.
+  Frame duration went 0.11s -> 0.18s; pondering at walking speed reads as
+  agitation, and this is the one loop the user watches for several seconds.
+- **poses** (4 frames) — attentive idle, explaining with a teaching gesture,
+  puzzled shrug, searching. Position maps to mood, so the order is load-bearing.
+
+Frame basenames stay `walk-N`. They are only filenames, and renaming them would
+orphan every character already generated.
+
+Both templates are now editable in Settings, with the same rules as the Services
+prompt slots: `{{character}}` is substituted, and blanking the field restores the
+default. A template that has lost its placeholder gets the description appended
+rather than silently generating a character nobody asked for.
+
+### The bug this uncovered: aspect ratio never reached the request
+
+`SpriteSheetSpec.aspectRatio` was dead data. The job never passed it to the
+client, so every sheet was generated at the client's default 4:3 — including the
+pose sheet, which asks for a 2x2 grid. The model obliged the aspect ratio rather
+than the prompt and returned **3x2**, which the extractor then sliced as 2x2,
+cutting across frame boundaries and producing halves of two owls stitched
+together.
+
+Stage 2 did not catch this because its generation script passed the aspect ratio
+explicitly; only the in-app path had the gap. The fix moves `aspectRatio` onto
+the `generate` call — per request, not per client — and there is now a test
+asserting each sheet's ratio reaches the request.
+
+Worth remembering as a shape of bug: the extractor was fine, the prompt was fine,
+and the two disagreed about the grid because a parameter silently went nowhere.
+It was only visible by **looking at the frames**.
+
+### Still open: the size jump is worse than measured
+
+The ~12% mood-to-mood size difference recorded earlier is more noticeable with
+these sheets — the pose frames carry more empty width than the thinking frames,
+so the character reads as smaller when it starts explaining. Same cause: each
+sheet is union-cropped independently. Stage 6.

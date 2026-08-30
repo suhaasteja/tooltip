@@ -23,6 +23,16 @@ final class SpriteStudioModel: ObservableObject {
     @Published var imageAPIKey: String = ""
     @Published var modelID: String = SpriteGeneratorConfiguration.defaultModel
 
+    /// The two sheet prompts. Editable, because what the character *does* is a
+    /// taste call — and because the shipped defaults are aimed at explaining
+    /// words, which is not the only thing someone might want.
+    @Published var thinkingPrompt: String = "" {
+        didSet { store.thinkingPrompt = thinkingPrompt }
+    }
+    @Published var posesPrompt: String = "" {
+        didSet { store.posesPrompt = posesPrompt }
+    }
+
     // MARK: State
 
     enum Phase: Equatable {
@@ -72,6 +82,8 @@ final class SpriteStudioModel: ObservableObject {
         self.activeSetID = store.activeSpriteSetID
         self.installedSets = sets.installedSets()
         self.imageAPIKey = ""
+        self.thinkingPrompt = store.thinkingPrompt
+        self.posesPrompt = store.posesPrompt
     }
 
     /// True when the configured LLM key already works for images, so the user
@@ -108,6 +120,8 @@ final class SpriteStudioModel: ObservableObject {
         let reuse = reusesLLMKey
         let chat = keychain
         let image = imageKeychain
+        let thinking = thinkingPrompt
+        let poses = posesPrompt
 
         phase = .running(step: SpriteGenerationStep.character.label)
         previewFrames = [:]
@@ -138,6 +152,8 @@ final class SpriteStudioModel: ObservableObject {
                     id: SpriteSet.makeID(from: description),
                     name: description,
                     description: description,
+                    thinkingTemplate: thinking,
+                    posesTemplate: poses,
                     decode: Self.decode,
                     progress: { step in
                         self.onMain { model in
@@ -203,6 +219,16 @@ final class SpriteStudioModel: ObservableObject {
 
     func refreshSets() {
         installedSets = sets.installedSets()
+    }
+
+    func restorePrompts() {
+        store.restoreSpritePrompts()
+        thinkingPrompt = store.thinkingPrompt
+        posesPrompt = store.posesPrompt
+    }
+
+    var promptsAreCustomised: Bool {
+        store.isThinkingPromptCustomised || store.isPosesPromptCustomised
     }
 
     /// Publishes a change on the main thread. `@Published` from a background

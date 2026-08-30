@@ -2,10 +2,19 @@ import Foundation
 
 /// The prompts that turn a one-line character description into sheets.
 ///
-/// Adapted from `~/Desktop/sprite-sheet-creator`, with the animations changed:
-/// its walk/jump/attack is a platformer's vocabulary, and this app needs the
-/// five `SpriteMood` cases instead.
+/// The actions are chosen for **what this app does**: someone highlights a word
+/// or a passage and asks for it to be explained. So the character ponders and
+/// then explains. The first draft inherited walk/jump/attack from
+/// `~/Desktop/sprite-sheet-creator`, which is a platformer's vocabulary — a
+/// character walking on the spot while an explanation loads reads as filler,
+/// not as thought.
+///
+/// The two sheet templates are user-editable; `SettingsStore` holds any
+/// override and these are the defaults.
 public enum SpritePrompts {
+
+    /// Substituted with the character description.
+    public static let placeholder = "{{character}}"
 
     /// Appended to every prompt. Kept out of the user's field so a description
     /// stays a description.
@@ -19,36 +28,55 @@ public enum SpritePrompts {
         white margins so no frame's character touches a cell edge.
         """
 
-    public static func walk(character: String) -> String {
-        """
-        Create a 6-frame pixel art walk cycle sprite sheet of \(character).
+    /// The looping animation shown while an answer is being fetched.
+    ///
+    /// A *thinking* cycle rather than a walk cycle. It is the only looping
+    /// animation, so it is the one the user actually watches for several
+    /// seconds — it has to read as considering the question.
+    public static let defaultThinkingTemplate = """
+        Create a 6-frame pixel art animation of \(placeholder) thinking hard \
+        about a difficult question.
 
-        Arrange the 6 frames in a 2x3 grid (2 rows, 3 columns). The character \
-        walks to the right.
-        Top row: stride right, legs passing, stride left.
-        Bottom row: legs passing, stride right, legs passing.
+        Arrange the 6 frames in a 2x3 grid (2 rows, 3 columns). The six frames \
+        form one smooth repeating loop of pondering, seen from the front.
+        Top row: hand beginning to rise toward the chin; hand resting on the \
+        chin, eyes glancing upward; head tilted, brow furrowed in concentration.
+        Bottom row: head tilted the other way, still pondering; one finger \
+        tapping the chin, eyes narrowed; hand lowering slightly, ready to begin \
+        the loop again.
 
-        \(style)
+        The character stays in the same spot in every frame. Do not show walking.
         """
-    }
 
-    /// The four non-walking moods, in the order `SpriteSet` expects them.
-    public static func poses(character: String) -> String {
-        """
-        Create a 4-frame pixel art sprite sheet of \(character), showing four \
-        different poses.
+    /// The four non-looping moods, in the order `SpriteSet` expects them.
+    ///
+    /// **The order is load-bearing.** Frames are mapped to moods by position,
+    /// so swapping two lines swaps two moods.
+    public static let defaultPosesTemplate = """
+        Create a 4-frame pixel art sprite sheet of \(placeholder), showing four \
+        different poses, seen from the front.
 
         Arrange the 4 frames in a 2x2 grid.
-        Top-left: standing idle, facing forward, relaxed.
-        Top-right: celebrating, one arm raised high in triumph.
-        Bottom-left: confused, shrugging with both palms up.
-        Bottom-right: looking around searchingly, one hand shading the eyes.
+        Top-left: standing attentively, relaxed, waiting to be asked something.
+        Top-right: explaining, one hand raised palm-up in a teaching gesture, \
+        mouth open mid-sentence.
+        Bottom-left: puzzled, shrugging with both palms up and eyebrows raised.
+        Bottom-right: searching, peering around with one hand shading the eyes.
 
-        \(style)
+        The character stays in the same spot in every frame.
         """
+
+    /// Fills in the character description and appends the style rules.
+    public static func render(template: String, character: String) -> String {
+        let filled = template.contains(placeholder)
+            ? template.replacingOccurrences(of: placeholder, with: character)
+            // A template that dropped the placeholder would otherwise generate a
+            // character nobody asked for; append rather than silently ignore.
+            : template + "\n\nThe character is \(character)."
+        return filled + "\n\n" + style
     }
 
-    public static func character(_ description: String) -> String {
+public static func character(_ description: String) -> String {
         """
         A single full-body pixel-art sprite of \(description), front-facing idle \
         pose, centred on a plain white background.
@@ -78,16 +106,21 @@ public struct SpriteSheetSpec: Equatable, Sendable {
         self.frameNames = frameNames
     }
 
-    public static func walk(character: String) -> SpriteSheetSpec {
+    /// The looping "considering the question" animation.
+    ///
+    /// Frame basenames stay `walk-N` even though the action is no longer a walk:
+    /// they are only filenames, and renaming them would orphan every character
+    /// already generated. The id the user sees comes from the step label.
+    public static func thinking(character: String, template: String) -> SpriteSheetSpec {
         SpriteSheetSpec(
-            id: "walk", prompt: SpritePrompts.walk(character: character),
+            id: "thinking", prompt: SpritePrompts.render(template: template, character: character),
             columns: 3, rows: 2, aspectRatio: "4:3",
             frameNames: (0..<6).map { "walk-\($0)" })
     }
 
-    public static func poses(character: String) -> SpriteSheetSpec {
+    public static func poses(character: String, template: String) -> SpriteSheetSpec {
         SpriteSheetSpec(
-            id: "pose", prompt: SpritePrompts.poses(character: character),
+            id: "poses", prompt: SpritePrompts.render(template: template, character: character),
             columns: 2, rows: 2, aspectRatio: "1:1",
             frameNames: (0..<4).map { "pose-\($0)" })
     }
@@ -146,6 +179,8 @@ public struct SpriteGenerationJob {
         id: String,
         name: String,
         description: String,
+        thinkingTemplate: String = SpritePrompts.defaultThinkingTemplate,
+        posesTemplate: String = SpritePrompts.defaultPosesTemplate,
         decode: (Data) -> PixelBitmap?,
         options: SpriteExtractor.Options = .init(snapToPixelGrid: true),
         progress: @Sendable (SpriteGenerationStep) -> Void = { _ in }
@@ -158,8 +193,10 @@ public struct SpriteGenerationJob {
         let reference = try await client.generate(
             prompt: SpritePrompts.character(description))
 
-        let specs = [SpriteSheetSpec.walk(character: description),
-                     SpriteSheetSpec.poses(character: description)]
+        let specs = [
+            SpriteSheetSpec.thinking(character: description, template: thinkingTemplate),
+            SpriteSheetSpec.poses(character: description, template: posesTemplate),
+        ]
 
         var frames: [String: Data] = [:]
         var sheets: [String: GeneratedImage] = [:]
@@ -169,7 +206,10 @@ public struct SpriteGenerationJob {
             progress(.sheet(id: spec.id, index: index + 1, of: specs.count))
             try Task.checkCancellation()
 
-            let sheet = try await client.generate(prompt: spec.prompt, reference: reference)
+            // The spec's aspect ratio must reach the request: a 2x2 grid asked
+            // for at 4:3 comes back as 3x2 and then slices wrong.
+            let sheet = try await client.generate(
+                prompt: spec.prompt, reference: reference, aspectRatio: spec.aspectRatio)
             sheets[spec.id] = sheet
 
             progress(.extracting)
@@ -187,22 +227,27 @@ public struct SpriteGenerationJob {
 
         // 2. Wire the frames to moods, matching the built-in set's timings so a
         //    generated character animates the way the shipped one does.
-        let walkNames = SpriteSheetSpec.walk(character: "").frameNames
+        let thinkingNames = SpriteSheetSpec.thinking(character: "", template: "").frameNames
             .filter { frames[$0] != nil }
-        if !walkNames.isEmpty {
+        if !thinkingNames.isEmpty {
+            // Slower than the old walk cycle's 0.11s. Pondering at walking speed
+            // reads as agitation; this is the one loop the user watches for
+            // several seconds while an answer loads.
             animations[SpriteMood.thinking.rawValue] = SpriteAnimation(
-                frames: walkNames, frameDuration: 0.11, loops: true)
+                frames: thinkingNames, frameDuration: 0.18, loops: true)
         }
-        // Pose order is authored in the prompt: idle, celebrate, confused, searching.
+        // Pose order is authored in the prompt and is load-bearing:
+        // idle, explaining, puzzled, searching.
         if frames["pose-0"] != nil {
             animations[SpriteMood.idle.rawValue] = SpriteAnimation(
                 frames: ["pose-0"], frameDuration: 1, loops: false)
         }
         if frames["pose-1"] != nil, frames["pose-0"] != nil {
-            // Celebrate, then settle on idle — the resting frame must be calm,
-            // because that is what Reduce Motion shows.
+            // Gesture, then settle to attentive. Deliberately does not loop: the
+            // panel is showing an answer the user is reading, and a character
+            // still moving underneath competes with the text.
             animations[SpriteMood.talking.rawValue] = SpriteAnimation(
-                frames: ["pose-1", "pose-0"], frameDuration: 0.16, loops: false)
+                frames: ["pose-1", "pose-0"], frameDuration: 0.22, loops: false)
         }
         if frames["pose-2"] != nil {
             animations[SpriteMood.confused.rawValue] = SpriteAnimation(

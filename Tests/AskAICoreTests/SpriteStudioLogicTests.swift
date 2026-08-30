@@ -17,6 +17,57 @@ struct SpriteStudioLogicTests {
         SpriteSet.makeID(from: description)
     }
 
+@Suite("Sprite prompt settings", .serialized)
+struct SpritePromptSettingsTests {
+
+    private func makeStore() -> (SettingsStore, UserDefaults, String) {
+        let name = "askai.spriteprompt.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        return (SettingsStore(defaults: defaults), defaults, name)
+    }
+
+    @Test("defaults to the shipped templates")
+    func defaultsToShipped() {
+        let (store, defaults, name) = makeStore()
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(store.thinkingPrompt == SpritePrompts.defaultThinkingTemplate)
+        #expect(store.posesPrompt == SpritePrompts.defaultPosesTemplate)
+        #expect(!store.isThinkingPromptCustomised)
+    }
+
+    @Test("an override is stored and reported as customised")
+    func overrideStored() {
+        let (store, defaults, name) = makeStore()
+        defer { defaults.removePersistentDomain(forName: name) }
+        store.thinkingPrompt = "six frames of a cat sleeping"
+        #expect(store.thinkingPrompt == "six frames of a cat sleeping")
+        #expect(store.isThinkingPromptCustomised)
+    }
+
+    /// Clearing the field is the undo, matching how the Services prompt slots
+    /// already behave — one rule for every prompt in the app.
+    @Test("blanking a prompt restores the default")
+    func blankRestores() {
+        let (store, defaults, name) = makeStore()
+        defer { defaults.removePersistentDomain(forName: name) }
+        store.posesPrompt = "something else"
+        store.posesPrompt = "   "
+        #expect(store.posesPrompt == SpritePrompts.defaultPosesTemplate)
+        #expect(!store.isPosesPromptCustomised)
+    }
+
+    @Test("restore clears both prompts at once")
+    func restoreBoth() {
+        let (store, defaults, name) = makeStore()
+        defer { defaults.removePersistentDomain(forName: name) }
+        store.thinkingPrompt = "a"
+        store.posesPrompt = "b"
+        store.restoreSpritePrompts()
+        #expect(store.thinkingPrompt == SpritePrompts.defaultThinkingTemplate)
+        #expect(store.posesPrompt == SpritePrompts.defaultPosesTemplate)
+    }
+}
+
     @Test("ids are filesystem-safe and readable")
     func idsAreSafe() {
         #expect(makeID(from: "a small round owl") == "a-small-round-owl")

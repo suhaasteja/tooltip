@@ -392,8 +392,9 @@ built-in rather than showing an empty character or crashing.
   lose the smaller piece — worth a test in Stage 2.
 - **Quality is unbounded.** Users will generate bad characters and blame the
   app. Preview-before-save is the mitigation.
-- **Character size jumps between moods.** Each sheet is union-cropped
-  independently, so the character fills 87-100% of its frame depending on which
+- **Character size jumps between moods.** More visible with the thinking/poses
+  sheets than with the original walk/jump ones, because their empty margins
+  differ more. Each sheet is union-cropped independently, so the character fills 87-100% of its frame depending on which
   sheet it came from — measured at ~12% between the walk and pose sheets of one
   live generation. Fixing it means normalising scale *across* sheets rather than
   within each. Deferred to Stage 6; noted here so it is not rediscovered.

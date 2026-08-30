@@ -5,6 +5,10 @@ import AskAICore
 struct SpriteStudioView: View {
     @ObservedObject var model: SpriteStudioModel
 
+    /// Which sheet's prompt the editor is showing.
+    enum Sheet: Hashable { case thinking, poses }
+    @State private var editedSheet: Sheet = .thinking
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             characterPicker
@@ -92,14 +96,56 @@ struct SpriteStudioView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            DisclosureGroup("Advanced") {
-                TextField("Image model", text: $model.modelID)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-                Text("Preview endpoints get renamed and retired. The output format "
-                     + "follows the model, so changing it changes what comes back.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            DisclosureGroup("Actions and model") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("What the character does. \(SpritePrompts.placeholder) is "
+                         + "replaced by your description.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Picker("", selection: $editedSheet) {
+                        Text("Thinking loop").tag(Sheet.thinking)
+                        Text("Poses").tag(Sheet.poses)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    TextEditor(text: editedSheet == .thinking
+                               ? $model.thinkingPrompt : $model.posesPrompt)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(height: 120)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.secondary.opacity(0.3)))
+
+                    Text(editedSheet == .thinking
+                         ? "Six frames, played as a loop while the answer loads."
+                         : "Four frames. The order is load-bearing: idle, "
+                           + "explaining, puzzled, searching. Swapping two lines "
+                           + "swaps two moods.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack {
+                        Button("Restore defaults") { model.restorePrompts() }
+                            .controlSize(.small)
+                            .disabled(!model.promptsAreCustomised)
+                        Spacer()
+                    }
+
+                    Divider()
+
+                    TextField("Image model", text: $model.modelID)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.caption, design: .monospaced))
+                    Text("Preview endpoints get renamed and retired. The output "
+                         + "format follows the model, so changing it changes what "
+                         + "comes back.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 6)
             }
             .font(.caption)
         }

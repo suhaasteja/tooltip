@@ -62,6 +62,8 @@ public final class SettingsStore {
         static let streaming = "llm.streaming"
         static let launchAtLogin = "app.launchAtLogin"
         static let spriteSet = "sprite.activeSetID"
+        static let thinkingPrompt = "sprite.prompt.thinking"
+        static let posesPrompt = "sprite.prompt.poses"
     }
 
     private let defaults: UserDefaults
@@ -192,6 +194,45 @@ public final class SettingsStore {
     public var activeSpriteSetID: String {
         get { defaults.string(forKey: Key.spriteSet) ?? SpriteSet.builtInID }
         set { defaults.set(newValue, forKey: Key.spriteSet) }
+    }
+
+    // MARK: Sprite prompts
+
+    /// The two sheet prompts, editable like the four Services prompt slots.
+    ///
+    /// Blank restores the default, matching how `template(for:)` behaves — so
+    /// "clear the field" is a working undo everywhere in this app.
+    public var thinkingPrompt: String {
+        get { nonEmpty(Key.thinkingPrompt) ?? SpritePrompts.defaultThinkingTemplate }
+        set { setOrClear(newValue, Key.thinkingPrompt) }
+    }
+
+    public var posesPrompt: String {
+        get { nonEmpty(Key.posesPrompt) ?? SpritePrompts.defaultPosesTemplate }
+        set { setOrClear(newValue, Key.posesPrompt) }
+    }
+
+    public var isThinkingPromptCustomised: Bool { nonEmpty(Key.thinkingPrompt) != nil }
+    public var isPosesPromptCustomised: Bool { nonEmpty(Key.posesPrompt) != nil }
+
+    public func restoreSpritePrompts() {
+        defaults.removeObject(forKey: Key.thinkingPrompt)
+        defaults.removeObject(forKey: Key.posesPrompt)
+    }
+
+    private func nonEmpty(_ key: String) -> String? {
+        guard let stored = defaults.string(forKey: key),
+              !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return stored
+    }
+
+    private func setOrClear(_ value: String, _ key: String) {
+        if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(value, forKey: key)
+        }
     }
 
     /// Whether the configured LLM key can also be used for image generation.
