@@ -116,6 +116,37 @@ func cut(
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
+
+// `evaluate <dir>` scores every sheet named in <dir>/manifest.json against
+// PLAN-sprites.md Stage 2's pass criteria.
+if args.first == "evaluate", args.count >= 2 {
+    let dir = args[1]
+    struct Entry: Decodable { let name: String; let columns: Int; let rows: Int
+        init(from decoder: Decoder) throws {
+            var c = try decoder.unkeyedContainer()
+            name = try c.decode(String.self)
+            columns = try c.decode(Int.self)
+            rows = try c.decode(Int.self)
+        }
+    }
+    let data = try! Data(contentsOf: URL(fileURLWithPath: "\(dir)/manifest.json"))
+    let entries = try! JSONDecoder().decode([Entry].self, from: data)
+    var passes = 0
+    for entry in entries {
+        guard let bitmap = loadBitmap(path: "\(dir)/\(entry.name).png") else {
+            print("FAIL  \(entry.name)  (could not load)")
+            continue
+        }
+        let result = SheetEvaluation.evaluate(
+            sheet: bitmap, name: entry.name,
+            columns: entry.columns, rows: entry.rows,
+            options: SpriteExtractor.Options(snapToPixelGrid: true))
+        SheetEvaluation.report(result)
+        if result.passes { passes += 1 }
+    }
+    print("\n==> \(passes)/\(entries.count) sheets pass")
+    exit(passes >= 4 ? 0 : 1)
+}
 let repoRoot = FileManager.default.currentDirectoryPath
 var failures = 0
 

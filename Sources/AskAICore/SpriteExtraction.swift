@@ -174,7 +174,10 @@ public enum SpriteExtractor {
     /// *encloses* rather than just its ink. Without that the guitarist's eyes and
     /// the light face of his guitar would be punched through, because they are
     /// background-coloured pixels sitting inside him.
-    static func character(
+    ///
+    /// Public so a single cell can be inspected without running the whole
+    /// pipeline, which is how the extractor is scored against real sheets.
+    public static func character(
         in sheet: PixelBitmap, cell: Box, options: Options
     ) -> (mask: [Bool], bounds: Box)? {
 
@@ -269,7 +272,7 @@ public enum SpriteExtractor {
         return (mask, bounds)
     }
 
-    static func union(_ a: Box, _ b: Box) -> Box {
+    public static func union(_ a: Box, _ b: Box) -> Box {
         let minX = min(a.x, b.x), minY = min(a.y, b.y)
         let maxX = max(a.maxX, b.maxX), maxY = max(a.maxY, b.maxY)
         return Box(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
@@ -328,7 +331,7 @@ public enum SpriteExtractor {
     /// blocks, and JPEG ringing lives at block boundaries. The gaps between
     /// sharp colour changes cluster at the block pitch, with weaker peaks at its
     /// multiples. Returns nil when there is no clear peak.
-    static func blockPitch(
+    public static func blockPitch(
         in sheet: PixelBitmap, cell: Box, crop: Box, options: Options
     ) -> Double? {
         var counts: [Int: Int] = [:]

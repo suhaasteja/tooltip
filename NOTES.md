@@ -877,3 +877,40 @@ Both held, and both are the point of the stage:
 
 Generated sheets, which the old algorithm could not handle at all, now extract
 6/6 cells cleanly on both the JPEG and the PNG sample.
+
+## Stage 2 GO/NO-GO: grid fidelity — passed 5/5
+
+Five sheets generated fresh from `gemini-3-pro-image-preview`, deliberately
+varied: three 2x3 walk cycles (robot, wizard, cat-in-a-suit) and two 2x2 pose
+sheets (wizard, knight). Scored mechanically by `SpriteTool evaluate`, not by
+eye — the pass bar was one character per cell, none clipped by a cell boundary,
+and >95% of each cell's background cleared.
+
+```
+PASS  01-robot-walk    6/6   cleared 99/99/100/99/99/99%   bounds 126-174 x 264-270
+PASS  02-wizard-walk   6/6   cleared 99/99/99/99/99/99%    bounds 167-230 x 338-342
+PASS  03-cat-walk      6/6   cleared 99/99/99/99/99/99%    bounds 198-241 x 372-378
+PASS  04-wizard-pose   4/4   cleared 99/99/99/99%          bounds 262-354 x 436-467
+PASS  05-knight-pose   4/4   cleared 97/97/97/97%          bounds 261-410 x 441-447
+==> 5/5 sheets pass
+```
+
+Then checked visually as well, because Stage 1's misdiagnosis came from trusting
+a thumbnail: all 26 frames extract cleanly with fully transparent backgrounds.
+
+**The detached-component guard earned itself.** The wizard pose sheet was prompted
+with "a glowing magic orb floating in the air beside him, clearly separated from
+his body and not touching him". The orb survives in all four frames. The
+"keep only the largest component" version this replaced would have deleted it —
+so the guard added speculatively in Stage 1 is now confirmed against real output,
+not just a synthetic test.
+
+**Consequence for the plan:** the expensive fallbacks are not needed. No prompt
+tightening, no image-derived grid detection, and in particular no
+divider-dragging UI — which was the outcome that would have roughly doubled the
+feature. Fixed even-grid slicing plus subtractive extraction is enough.
+
+Caveat worth keeping: five sheets from one model with one prompt family. A user
+typing an arbitrary character description will find cases these did not. The
+built-in set remains the fallback, and Stage 4's preview-before-save is what
+stops a bad generation reaching the panel.

@@ -267,7 +267,11 @@ vendored sheets must still produce byte-identical committed frames.
 
 ---
 
-## Stage 2 — GO/NO-GO: grid fidelity across several generations
+## Stage 2 — GO/NO-GO: grid fidelity — **PASSED 5/5**
+
+> **GO.** Five freshly generated sheets, three 2x3 walk cycles and two 2x2 pose
+> sheets, all pass. No prompt tightening, no grid detection, and no
+> divider-dragging UI needed. See NOTES.md.
 
 One fresh sheet passed (above). Confirm it was not luck.
 
