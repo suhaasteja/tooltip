@@ -1,161 +1,214 @@
 # PLAN — user-generated sprites
 
-Let users create their own character from a text prompt in Settings, the way
-`~/Desktop/sprite-sheet-creator` does, instead of being stuck with the one
-sheet vendored into the bundle.
+Let users create their own character from a text prompt in Settings, instead of
+being stuck with the one sheet vendored into the bundle.
 
-Written 2026-08-30, against the state at `feat: move the character outside the
-card into a speech bubble`.
+Written 2026-08-30. **Revised the same day** after verifying that Google's image
+model can be called directly, which removed fal.ai from the design entirely.
 
 ---
 
 ## 0. Read this first
 
-**RULE 1 — Stage 2 is a go/no-go gate.** Everything downstream assumes a
-generated sheet can be sliced into usable frames *without* a human dragging grid
-lines. The reference implementation has draggable dividers precisely because
-image models do not reliably honour a grid. If fixed-grid slicing does not hold,
-stop and re-plan: the honest alternative is a frame-editing UI, which is a much
-larger feature than "type a prompt, get a character".
+**RULE 1 — No queue, no polling, no third-party image host.** Verified below:
+`generativelanguage.googleapis.com` returns the image bytes inline from a single
+`generateContent` POST. Anything reintroducing a job queue is a step backwards.
 
-**RULE 2 — No network before Stage 3.** Stages 0–2 are refactors and local image
-work. They are independently valuable: they make the sprite system data-driven
-whether or not generation ever ships.
+**RULE 2 — Slice before removing the background.** Not the other way round. This
+is load-bearing and counter-intuitive; the reasoning is in Stage 1.
 
 **RULE 3 — One stage, one commit**, matching PLAN.md.
 
 **RULE 4 — Generation costs the user real money.** Every design decision that
-can avoid an API call should. This is why Stage 1 exists.
+can avoid a call should.
 
-### What the reference implementation does
+---
 
-`sprite-sheet-creator` (Next.js) runs a four-step pipeline:
+## What was verified, 2026-08-30
 
-1. `fal-ai/nano-banana-pro` — prompt → one character image, white background.
-2. `fal-ai/nano-banana-pro/edit` — that image → a sprite sheet, one call per
-   animation (walk 2x3, jump 2x2, attack 2x2). Passing the character image is
-   what keeps identity stable across sheets; generating each sheet from the text
-   prompt alone would produce a different-looking character each time.
-3. `fal-ai/bria/background/remove` — white background → transparent PNG.
-4. Client-side canvas slicing, with **user-adjustable grid dividers**.
+### Google's image model works over plain REST — fal.ai is unnecessary
 
-Its `FAL_KEY` lives server-side in a Next.js API route. We have no server, so the
-key has to be the user's own, in the Keychain, exactly like the LLM key.
+The reference implementation (`~/Desktop/sprite-sheet-creator`) calls
+`fal-ai/nano-banana-pro`. That *is* Google's model; fal is a paid middleman.
+Its own `scripts/generate-resume-sprites.mjs` already auto-selects Google
+directly when `GEMINI_API_KEY` is set, falling back to fal only otherwise.
 
-### Three places this app must differ
+Confirmed by direct call, no SDK:
 
-- **Step 3 is probably unnecessary.** `scripts/make-sprites.swift` already does
-  background removal locally by border flood fill, and it handled the reference
-  sheets cleanly — including preserving white *inside* the character. That
-  removes an API call, a cost, and a dependency. Bria is better on complex
-  backgrounds, but our prompt asks for a white one.
-- **The animations are wrong for us.** Walk/jump/attack is a platformer's
-  vocabulary. This app needs the five `SpriteMood` cases. The existing vendored
-  set already proves the mapping: a 6-frame walk for `.thinking`, and a 4-pose
-  sheet (crouch / celebrate / kneel / stand) covering `.talking`, `.confused`,
-  `.searching` and `.idle`.
-- **Slicing must move into the app.** It is currently a build-time script run by
-  a developer. It has to become runtime code, which means it has to become
-  testable code.
+```
+POST https://generativelanguage.googleapis.com/v1beta/models/
+     gemini-3-pro-image-preview:generateContent
+header  x-goog-api-key: <key>
+body    {"contents":[{"parts":[{"text": ...}]}],
+         "generationConfig":{"imageConfig":{"aspectRatio":"4:3","imageSize":"1K"}}}
+
+-> HTTP 200, one part, inlineData, 371 KB
+   usage: promptTokenCount=125 candidatesTokenCount=1400 (IMAGE 1120)
+```
+
+Consequences, all simplifications:
+
+- **No second vendor, and possibly no second API key.** This app already talks
+  to `generativelanguage.googleapis.com` — the current configuration on this
+  machine is the Gemini preset. A Google AI Studio key works for both the LLM
+  and image generation, so when the active provider is Gemini the existing key
+  can be reused. Only non-Gemini users need to supply a separate one.
+- **One synchronous request per sheet.** fal is submit → poll → fetch; this is a
+  single POST returning bytes. Stage 3 loses an entire class of complexity, and
+  `URLSession` + `StubURLProtocol` cover it exactly like the LLM clients.
+- **Billed as tokens**, which is the same mental model as the rest of the app.
+
+### Two things the API does that the pipeline has to survive
+
+**It returns JPEG, not PNG.** `mimeType=image/jpeg`. No alpha channel (expected
+— we add it), but also lossy: the "white" background is not pure white, and
+there is ringing around the character's dark outline. Background removal cannot
+threshold at 250 and hope. 225–235 held up in testing.
+
+**It draws grid lines.** Asked for a 2x3 grid, the model helpfully rendered
+visible black cell borders. Those borders **enclose each cell**, so a flood fill
+starting at the image border cannot get inside:
+
+```
+white pixels total    = 859201
+reached by flood fill = 427676  (49%)
+>>> flood fill BLOCKED — grid lines enclose the cells
+```
+
+This breaks `scripts/make-sprites.swift` as currently written, which fills the
+whole sheet first and slices afterwards.
+
+### The fix, verified
+
+Reverse the order: **slice into cells first, inset past any border line, then
+flood fill each cell from its own edges.**
+
+```
+cell(0,0) background cleared=100%  content=204x294  OK
+cell(0,1) background cleared=99%   content=157x307  OK
+cell(0,2) background cleared=100%  content=199x300  OK
+cell(1,0) background cleared=99%   content=162x318  OK
+cell(1,1) background cleared=100%  content=205x307  OK
+cell(1,2) background cleared=99%   content=163x318  OK
+>>> SLICE-THEN-FILL WORKS
+```
+
+Robust whether or not the model draws borders, so it is the right approach even
+if a prompt tweak suppresses them.
+
+### Grid fidelity — the Stage 2 gate, largely answered
+
+The generated sheet honoured the requested 2x3 grid exactly: even cells, one
+character per cell, none clipped, identity consistent across all six frames.
+Content bounds vary 157–205 x 294–318, which is normal for a walk cycle and well
+within what a shared union crop handles.
+
+**One sheet is not a rule.** Stage 2 still runs, but the risk it was written to
+catch now looks low, and the expensive fallback (a divider-dragging UI) is
+unlikely to be needed.
 
 ---
 
 ## Stage 0 — Make sprite sets data-driven
 
-No network, no new UI. Today `SpriteMood.animation` hardcodes frame names
-(`walk-0`…`walk-5`, `pose-0`…`pose-3`) and `SpriteLoader` reads one fixed
-directory inside the app bundle, which is read-only.
+No network, no new UI. Today `SpriteMood.animation` hardcodes frame names and
+`SpriteLoader` reads one fixed directory inside the read-only app bundle.
 
-- Introduce a `SpriteSet` value type in `AskAICore`: an id, a display name, and
-  a mood → (frame names, duration, loops) mapping. Codable, so it can be written
-  as a small manifest beside the frames.
-- `SpriteMood.animation` becomes a lookup on the active set rather than a
-  `switch`. The current hardcoded values become the built-in set's manifest.
-- `SpriteLoader` gains a second search path: user sets in
+- `SpriteSet` value type in `AskAICore`: id, display name, and a mood →
+  (frames, duration, loops, resting frame) mapping. Codable, written as a small
+  manifest beside the frames.
+- `SpriteMood.animation` becomes a lookup on the active set instead of a
+  `switch`; today's hardcoded values become the built-in set's manifest.
+- `SpriteLoader` gains a second search path:
   `Application Support/<bundle-id>/Sprites/<set-id>/`, falling back to the
-  bundled default. Note the app is sandboxed, so this resolves inside the
-  container — that is fine and is the correct location.
-- `SettingsStore` gains `activeSpriteSetID`, defaulting to the built-in.
+  bundled default. The app is sandboxed, so this resolves inside the container —
+  correct, and writable.
+- `SettingsStore` gains `activeSpriteSetID`.
 
-**Verify.** `make test` green. `make snapshot` byte-identical to before. Copy a
-hand-made set into Application Support, point the setting at it, and the panel
-uses it with no code change and no relaunch.
+**Verify.** `make test` green, `make snapshot` byte-identical. A hand-made set
+dropped into Application Support is picked up with no code change or relaunch.
 
-**Why first.** It de-risks everything else, and it is the only stage that
-touches the working panel. If generation is later abandoned, this still leaves
-the app able to load a character an artist supplied by hand.
-
----
-
-## Stage 1 — Move frame extraction into the app
-
-Port `scripts/make-sprites.swift` into `AskAICore` as pure functions: border
-flood fill, union bounding box across frames, nearest-neighbour downscale.
-
-- Input: image data + grid (columns, rows). Output: per-frame image data.
-- No AppKit — CoreGraphics/ImageIO only, so it stays in the core target and
-  under test.
-- Rewrite `scripts/make-sprites.swift` as a thin CLI over the same functions, so
-  there is exactly one implementation and the script keeps working.
-
-**Verify.** Unit tests over a synthetic sheet: a known grid of solid squares on
-white, asserting frame count, transparency at the corners, opaque centres, and
-that interior white survives the fill. Re-running `make sprites` produces frames
-byte-identical to the committed ones — that is the real regression test.
-
-**Note.** This is where the "no extra API call" bet gets paid off or lost. If
-local flood fill turns out to be inadequate on real generated sheets in Stage 2,
-Bria goes back on the table as Stage 3a.
+**Why first.** It de-risks everything else, is the only stage touching the
+working panel, and stands alone: even if generation is abandoned, an artist can
+hand you a character.
 
 ---
 
-## Stage 2 — GO/NO-GO: slice a real generated sheet
+## Stage 1 — Frame extraction into the app, slice-then-fill
 
-Take sheets generated by `sprite-sheet-creator` *today* — including at least one
-generated fresh, not the three already vendored — and run Stage 1's extractor
-over them with a fixed grid.
+Port `scripts/make-sprites.swift` into `AskAICore` as pure functions, **and fix
+the ordering while porting**.
 
-**Pass condition.** For at least 4 of 5 generated sheets: every cell contains
-exactly one character, no character is clipped by a cell boundary, and the union
-crop leaves frames aligned enough that playback does not jitter.
+New pipeline, per sheet:
 
-**If it passes**, generation can be a one-shot "type a prompt, get a character"
-flow and the plan continues as written.
+1. Slice into `columns x rows` cells on the nominal grid.
+2. Inset each cell by a few pixels to skip a drawn border line.
+3. Flood fill **that cell** from **its own** edges — this is the change.
+4. Union bounding box across all cells, applied to all of them, so frames stay
+   aligned and playback does not jitter.
+5. Nearest-neighbour downscale.
 
-**If it fails**, stop. The options are, in order of preference:
+Keep the alpha threshold tolerant of JPEG ringing (225–235, not 250), and keep
+the flood fill rather than a plain threshold so white *inside* the character
+survives.
 
-1. Tighten the prompt (explicit grid, generous margins, "do not let the
-   character touch the cell edges") and re-test. Cheapest fix.
-2. Auto-detect cell boundaries by projecting alpha onto each axis and finding
-   the gutters, rather than assuming an even grid. Moderate work, no UI.
-3. Build the divider-dragging UI the reference implementation has. This roughly
-   doubles the feature and should force a conversation about whether it is worth
-   it.
+- CoreGraphics/ImageIO only, no AppKit, so it stays testable in the core target.
+- `scripts/make-sprites.swift` becomes a thin CLI over the same functions — one
+  implementation, and the script keeps working.
 
-**Verify.** Write the actual pass/fail counts into NOTES.md. Do not record a
-verdict from three sheets and call it a rule.
+**Verify.** Unit tests on a synthetic sheet: known grid, solid squares on white,
+**plus a variant with drawn grid lines** — that case is the regression guard for
+this whole stage. Assert frame count, transparent corners, opaque centres, and
+interior white preserved. Re-running `make sprites` on the vendored sheets must
+still produce byte-identical committed frames.
 
 ---
 
-## Stage 3 — fal.ai client
+## Stage 2 — GO/NO-GO: grid fidelity across several generations
 
-Mirror the shape the LLM layer already uses, because it works and is tested.
+One fresh sheet passed (above). Confirm it was not luck.
 
-- `SpriteGeneratorClient` protocol + a `FalClient` conformer in `AskAICore`.
-- fal is queue-based: submit returns a request id, then poll status, then fetch
-  the result. That is different from the LLM clients' single request/response
-  and needs its own tests for the polling loop, including timeout and failure.
-- Key in the Keychain under a **new account** on the existing service —
-  `KeychainStore` is already parameterised for exactly this. It must not collide
-  with the LLM key.
-- Two calls per generation: character, then one sheet per animation. Sheets
-  reference the character image URL so identity holds.
-- Everything through `URLSession`, tested with the existing `StubURLProtocol`.
-  No live calls in the suite.
+Generate **five** sheets — a mix of the 6-frame walk and the 4-pose set, with
+different character prompts — and run Stage 1's extractor over each.
 
-**Verify.** Stubbed tests for submit/poll/success, poll/failure, timeout,
-malformed payload, and missing key. Then exactly one real generation, run by
-hand, with the request and timing recorded in NOTES.md.
+**Pass condition.** For at least 4 of 5: one character per cell, none clipped by
+a cell boundary, background cleared >95% per cell, and union-cropped frames
+aligned well enough that playback does not jitter.
+
+**If it fails**, in order of preference:
+
+1. Tighten the prompt — explicit grid, generous margins, "do not let the
+   character touch the cell edges", and "no borders or grid lines". Cheapest.
+2. Detect cell boundaries by projecting alpha onto each axis to find gutters,
+   instead of assuming an even grid. Moderate, no UI.
+3. Build the divider-dragging UI the reference implementation has. Roughly
+   doubles the feature; should trigger a conversation about whether it is worth
+   it rather than being done silently.
+
+**Verify.** Record actual pass/fail counts in NOTES.md. Do not generalise from
+three sheets.
+
+---
+
+## Stage 3 — Gemini image client
+
+- `SpriteGeneratorClient` protocol + `GeminiImageClient` in `AskAICore`,
+  mirroring the LLM layer's shape because it already works and is tested.
+- Single POST per sheet. Decode `candidates[0].content.parts[].inlineData`,
+  base64, `mimeType` — do not assume PNG.
+- Two calls per character: one for the base character, then one **per sheet**
+  passing the character image back as an input part. Generating each sheet from
+  the text prompt alone produces a different-looking character each time;
+  passing the image is what holds identity.
+- Key resolution: reuse the configured LLM key when the provider is Gemini,
+  otherwise a separate Google key under a **new account** on the existing
+  Keychain service. `KeychainStore` is already parameterised for this.
+- Reuse the existing error-envelope mapping where possible — this is the same
+  host the OpenAI-compatible client already talks to.
+
+**Verify.** `StubURLProtocol` tests for success, 400, 429, malformed payload,
+missing key, and a response whose part carries no `inlineData`. Then one real
+generation by hand, with timing recorded in NOTES.md. No live calls in the suite.
 
 ---
 
@@ -163,61 +216,61 @@ hand, with the request and timing recorded in NOTES.md.
 
 A new **Sprites** tab in the existing Settings window.
 
-- fal.ai key field, same treatment as the LLM key.
-- Prompt field, with the fixed style suffix appended invisibly (pixel art,
-  centred, white background) exactly as the reference implementation does.
-- **A cost warning before the first call.** Each generation is several paid
-  requests. Users should not discover this from a bill.
-- Progress that names the step ("generating character", "generating walk cycle",
-  2 of 3), because the whole thing takes tens of seconds.
+- Prompt field, with the pixel-art/white-background style suffix appended
+  invisibly, as the reference implementation does.
+- Key field **only when the active provider is not Gemini**; otherwise say the
+  existing key is being reused.
+- **A cost warning before the first call.** Several paid requests per character.
+- Step-named progress ("character", then "walk cycle", "poses") — the whole
+  thing takes tens of seconds.
 - Cancel that actually cancels.
-- Preview the extracted frames, animated, before committing.
-- Save writes the set to Application Support and switches to it. Discard leaves
-  everything untouched.
+- Animated preview of extracted frames before committing.
+- Save writes the set and switches to it; discard leaves everything untouched.
 
-**Verify.** Generate a character from a cold start, preview it, save it, and see
-it appear in a real Services invocation without relaunching. Cancel mid-flight
-and confirm no partial set is written.
+**Verify.** Generate from cold, preview, save, and see it in a real Services
+invocation without relaunching. Cancel mid-flight; confirm no partial set is
+written.
 
 ---
 
 ## Stage 5 — Manage sets
 
-- List installed sets, switch active, rename, delete.
-- The built-in set is undeletable and is the fallback if a user set is missing
-  or corrupt.
-- Regenerate a single animation without redoing the whole character.
+- List, switch, rename, delete.
+- The built-in set is undeletable and is the fallback.
+- Regenerate one animation without redoing the character.
 
-**Verify.** Delete the active set while the panel is open; the app falls back to
-the built-in rather than showing an empty character or crashing.
+**Verify.** Delete the active set while the panel is open — falls back to the
+built-in rather than showing an empty character or crashing.
 
 ---
 
 ## Stage 6 — Robustness
 
-- A set whose manifest references missing frames must degrade to the built-in,
-  not trap. `SpriteLoader` already returns nil and logs rather than crashing;
-  keep that property under the new loading path.
-- Cap disk use; a runaway set count should not fill the container.
-- Reduced Motion still honoured for generated sets — `restingFrame` must be
-  meaningful, so the manifest has to record which frame is the resting one
-  rather than assuming the last.
+- A manifest referencing missing frames degrades to the built-in, never traps.
+  `SpriteLoader` already returns nil and logs; keep that under the new path.
+- Cap disk use; runaway sets must not fill the container.
+- Reduced Motion honoured for generated sets — the manifest records the resting
+  frame rather than assuming the last one.
 - Frames are user-supplied content now: validate dimensions and reject absurd
   sizes before decoding.
 
 ---
 
-## Risks worth naming up front
+## Risks worth naming
 
-- **Cost and rate limits.** Several paid calls per character, on the user's own
-  key. Mitigated by a warning and by not calling Bria.
-- **Identity drift between sheets.** Generating each sheet from the character
-  *image* rather than the text prompt is what prevents it; if the edit model
-  drifts anyway, the character will visibly change between moods.
-- **Latency.** Tens of seconds. The whole flow must be async, cancellable, and
-  must never touch the main thread — the Keychain incident in NOTES.md is the
-  cautionary tale.
+- **Cost.** A few paid calls per character on the user's own key. Mitigated by a
+  warning, by dropping fal's middleman, and by not needing a background-removal
+  API at all.
+- **Identity drift between sheets.** Passing the character *image* into each
+  sheet call is the mitigation; if the model drifts anyway the character visibly
+  changes between moods.
+- **Latency.** Tens of seconds. Async, cancellable, never on the main thread —
+  the Keychain incident in NOTES.md is the cautionary tale.
+- **JPEG artefacts.** Lossy edges make background removal fuzzier than it was
+  with the vendored PNGs. Tolerant thresholds and per-cell fill handle it; very
+  low-contrast characters against white may still smear.
 - **Quality is unbounded.** Users will generate bad characters and blame the
   app. Preview-before-save is the mitigation.
-- **Scope.** Stage 2 failing turns this from a weekend feature into an image
-  editor. That is the whole reason it is a gate.
+- **`gemini-3-pro-image-preview` is a preview model.** Preview endpoints get
+  renamed and retired. The model id must be configurable, not hardcoded, exactly
+  as `LLMConfiguration.model` already is.

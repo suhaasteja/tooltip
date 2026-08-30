@@ -668,3 +668,45 @@ application is automatically on the item's ACL. Nothing to authorize.
 So the fix for the dev loop (a stable `ASKAI_SIGN_ID`) is not something users
 need, and the data protection keychain is a nice-to-have rather than a blocker
 for distribution.
+
+### fal.ai is not needed — Google's image model answers over plain REST
+
+`~/Desktop/sprite-sheet-creator` calls `fal-ai/nano-banana-pro`. That is Google's
+model with fal as a paid middleman; the same repo's
+`scripts/generate-resume-sprites.mjs` already prefers Google directly when
+`GEMINI_API_KEY` is set. Confirmed with a direct call, no SDK:
+
+```
+POST .../v1beta/models/gemini-3-pro-image-preview:generateContent
+     header x-goog-api-key
+-> HTTP 200, one part, inlineData, 371 KB
+   usage promptTokenCount=125 candidatesTokenCount=1400 (IMAGE 1120)
+```
+
+Single synchronous request returning bytes inline — no queue, no polling, no
+third-party image host. And this app already talks to that host for the Gemini
+preset, so when the active provider is Gemini the existing key covers both.
+
+Two things the pipeline has to survive:
+
+1. **The response is JPEG, not PNG.** Lossy, so the "white" background is not
+   pure and there is ringing around dark outlines. Thresholds must be tolerant
+   (225-235, not 250).
+2. **The model draws grid lines.** Asked for a 2x3 grid it rendered visible cell
+   borders, and those borders *enclose* each cell, so a flood fill from the image
+   border cannot get inside: it reached 427676 of 859201 white pixels (49%).
+
+That second one breaks `scripts/make-sprites.swift` as written, which fills the
+whole sheet and slices afterwards.
+
+**Fix, verified: slice first, then fill each cell from its own edges**, insetting
+a few pixels past any border line.
+
+```
+cell(0,0) cleared=100%  cell(0,1) cleared=99%   cell(0,2) cleared=100%
+cell(1,0) cleared=99%   cell(1,1) cleared=100%  cell(1,2) cleared=99%
+```
+
+Robust whether or not borders are drawn, so it is the right order regardless of
+prompt tweaks. Grid fidelity itself was good: even cells, one character each,
+none clipped, identity consistent across all six frames.
