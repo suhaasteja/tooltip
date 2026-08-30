@@ -629,3 +629,42 @@ a change to the LLM wiring, not to the panel, and has been left alone here.
 The `show build=/layout=/order=/key=` line was kept rather than removed. In a
 hand-bundled app with no debugger attached, one notice per panel presentation is
 cheap and it is what turned a 35-second mystery into a one-line answer.
+
+### The data protection keychain needs a provisioning profile — tested, not assumed
+
+`kSecUseDataProtectionKeychain` is Apple's recommended replacement for the
+legacy ACL model, and would remove the "enter your login password" dialog
+entirely: access is decided by the app's access group rather than by a per-item
+list of trusted binaries. Tested from the signed, sandboxed bundle
+(`ASKAI_DPKEYCHAIN_TEST=1`):
+
+```
+dptest[legacy]         write+read=true OK
+dptest[dataprotection] FAILED status=-34018
+```
+
+-34018 is `errSecMissingEntitlement`. The data protection keychain requires an
+`application-identifier` (or `keychain-access-groups`) entitlement, and those
+are only granted by an **embedded provisioning profile** — a Development
+certificate on its own does not carry one. So this is not available to a
+hand-bundled app signed with a bare identity, and `KeychainStore.useDataProtection`
+stays off by default.
+
+It becomes available if the app ever ships with a provisioning profile (App
+Store, or Developer ID with a profile for the entitlement). The flag is in place
+for that day.
+
+### The prompt is a developer problem, not a user problem
+
+Worth being clear, because it changes how much it matters: the login-password
+dialog appears when an app tries to read a keychain item **created under a
+different code identity**. Re-signing ad-hoc on every build creates a new
+identity every time, so the developer sees it constantly.
+
+An end user installing a properly signed build never hits it. Their app creates
+the item itself when they paste their key in Settings, and the creating
+application is automatically on the item's ACL. Nothing to authorize.
+
+So the fix for the dev loop (a stable `ASKAI_SIGN_ID`) is not something users
+need, and the data protection keychain is a nice-to-have rather than a blocker
+for distribution.

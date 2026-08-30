@@ -23,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Decode the sprite PNGs now, not on the first invocation while the
         // user is waiting for an answer.
         SpriteLoader.preload()
+        // Same idea, and far more important: get the Keychain dialog out of the
+        // way at launch rather than in the middle of the first question.
+        warmKeychain()
         resultPanel.onRetry = { [weak self] selection in
             guard let self else { return }
             self.ask(selection: selection, slot: self.lastSlot)
@@ -31,6 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if ProcessInfo.processInfo.environment["ASKAI_KEYCHAIN_SELFTEST"] == "1" {
             runKeychainSelfTest()
+        }
+        if ProcessInfo.processInfo.environment["ASKAI_DPKEYCHAIN_TEST"] == "1" {
+            runDataProtectionKeychainTest()
         }
         if ProcessInfo.processInfo.environment["ASKAI_SPRITE_PREVIEW"] == "1" {
             startSpritePreview()
@@ -82,6 +88,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previewTimer = timer
     }
 
+    /// Round-trips a throwaway secret through BOTH keychains and reports each
+    /// step's status, so it is knowable rather than assumed whether this bundle
+    /// can use the data protection keychain.
+    ///
+    /// The interesting failure is `errSecMissingEntitlement` (-34018) on the
+    /// data protection side, which means the signature carries no usable team
+    /// identifier. `ASKAI_DPKEYCHAIN_TEST=1`; must be run from the signed,
+    /// sandboxed bundle, because that is the only configuration whose answer
+    /// counts.
+    private func runDataProtectionKeychainTest() {
+        for useDataProtection in [false, true] {
+            let label = useDataProtection ? "dataprotection" : "legacy"
+            let probe = KeychainStore(
+                service: "com.yourname.AskAI.dptest",
+                account: "probe",
+                useDataProtection: useDataProtection)
+            do {
+                try probe.save("round-trip-value")
+                let read = try probe.read()
+                try probe.delete()
+                Log.app.notice(
+                    """
+                    dptest[\(label, privacy: .public)] \
+                    write+read=\(read == "round-trip-value", privacy: .public) OK
+                    """)
+            } catch let KeychainStore.KeychainError.unexpectedStatus(status) {
+                Log.app.error(
+                    """
+                    dptest[\(label, privacy: .public)] FAILED status=\
+                    \(status, privacy: .public)
+                    """)
+            } catch {
+                Log.app.error(
+                    """
+                    dptest[\(label, privacy: .public)] FAILED \
+                    \(String(describing: error), privacy: .public)
+                    """)
+            }
+        }
+    }
+
     /// Round-trips a throwaway secret through the Keychain and logs the result.
     ///
     /// Worth having as a launch-time diagnostic because a sandboxed,
@@ -111,36 +158,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - LLM wiring
 
+    /// The API key, once read. `nil` inner value means "read, and there isn't
+    /// one" -- distinct from the outer nil, which means "not read yet".
+    ///
+    /// Main thread only.
+    private var cachedKey: String??
+
+    /// Reads the key. **Blocks**, sometimes for many seconds: the first
+    /// `SecItemCopyMatching` in a sandboxed process can sit behind a Keychain
+    /// authorization dialog, and this app's ad-hoc signature changes on every
+    /// rebuild, so macOS treats each build as a new application and asks again.
+    /// Never call this on the main thread. See NOTES.md.
+    private func readKey() -> String? {
+        // Distinguish "no key stored" from "keychain refused us". An
+        // ad-hoc-signed sandboxed app can fail with errSecMissingEntitlement
+        // (-34018), which would otherwise look identical to an empty
+        // keychain and send the user hunting in Settings for nothing.
+        do {
+            let key = try keychain.read()
+            Log.llm.notice("keychain read ok hasKey=\(key != nil, privacy: .public)")
+            return key
+        } catch {
+            Log.llm.error(
+                "keychain read FAILED: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Reads the key off the main thread at launch so the dialog, if there is
+    /// one, appears while the user is not waiting on an answer.
+    ///
+    /// Without this the read happens inside the Services handler, on the main
+    /// thread, and the panel cannot draw until it returns -- which is what made
+    /// the first question after every launch look frozen for 10-35 seconds.
+    private func warmKeychain() {
+        guard !MockLLMClient.isEnabled() else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let key = self.readKey()
+            DispatchQueue.main.async { self.cachedKey = .some(key) }
+        }
+    }
+
     /// Built lazily so a key added in Settings takes effect without relaunching,
     /// and cached so a second invocation can cancel the first one's request.
-    private func makeOrchestrator() -> AskOrchestrator {
+    private func makeOrchestrator(apiKey: String?) -> AskOrchestrator {
         let client: LLMClient
         if MockLLMClient.isEnabled() {
             Log.llm.notice(
                 "using MockLLMClient (\(MockLLMClient.environmentKey, privacy: .public)=1)")
             client = MockLLMClient()
         } else {
-            // Distinguish "no key stored" from "keychain refused us". An
-            // ad-hoc-signed sandboxed app can fail with errSecMissingEntitlement
-            // (-34018), which would otherwise look identical to an empty
-            // keychain and send the user hunting in Settings for nothing.
-            var key: String?
-            do {
-                key = try keychain.read()
-                Log.llm.notice(
-                    """
-                    keychain read ok hasKey=\(key != nil, privacy: .public) \
-                    provider=\(self.settings.provider.rawValue, privacy: .public) \
-                    model=\(self.settings.model, privacy: .public)
-                    """
-                )
-            } catch {
-                Log.llm.error(
-                    "keychain read FAILED: \(String(describing: error), privacy: .public)")
-                key = nil
-            }
+            Log.llm.notice(
+                """
+                client provider=\(self.settings.provider.rawValue, privacy: .public) \
+                model=\(self.settings.model, privacy: .public)
+                """)
             client = LLMClientFactory.make(
-                configuration: settings.configuration(), apiKey: key)
+                configuration: settings.configuration(), apiKey: apiKey)
         }
         return AskOrchestrator(
             client: client,
@@ -151,19 +226,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func ask(selection: String, slot: Int) {
         lastSlot = slot
-        let orchestrator = self.orchestrator ?? makeOrchestrator()
-        self.orchestrator = orchestrator
-        Log.llm.notice(
-            "asking slot=\(slot, privacy: .public) chars=\(selection.count, privacy: .public)")
-        orchestrator.ask(
-            selection: selection,
-            template: settings.template(for: slot)
-        )
+        let template = settings.template(for: slot)
+
+        // Fast path: everything already resolved.
+        if let orchestrator {
+            Log.llm.notice(
+                "asking slot=\(slot, privacy: .public) chars=\(selection.count, privacy: .public)")
+            orchestrator.ask(selection: selection, template: template)
+            return
+        }
+        if let cachedKey {
+            let orchestrator = makeOrchestrator(apiKey: cachedKey)
+            self.orchestrator = orchestrator
+            Log.llm.notice(
+                "asking slot=\(slot, privacy: .public) chars=\(selection.count, privacy: .public)")
+            orchestrator.ask(selection: selection, template: template)
+            return
+        }
+
+        // The warm-up has not finished (or has not been given a chance). Resolve
+        // the key off the main thread so the panel keeps drawing its loading
+        // state instead of freezing behind a Keychain dialog.
+        Log.llm.notice("keychain not warm yet; resolving off-main")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let key = self.readKey()
+            DispatchQueue.main.async {
+                self.cachedKey = .some(key)
+                let orchestrator = self.makeOrchestrator(apiKey: key)
+                self.orchestrator = orchestrator
+                Log.llm.notice(
+                    """
+                    asking slot=\(slot, privacy: .public) \
+                    chars=\(selection.count, privacy: .public)
+                    """)
+                orchestrator.ask(selection: selection, template: template)
+            }
+        }
     }
 
     /// Discards the cached orchestrator so the next ask picks up new settings.
+    ///
+    /// Also drops the cached key and re-reads it: the most common reason to get
+    /// here is the user having just pasted a new API key into Settings, and a
+    /// stale cached key would keep the old one alive until relaunch.
     func invalidateOrchestrator() {
         orchestrator = nil
+        cachedKey = nil
+        warmKeychain()
     }
 
     // MARK: - Services

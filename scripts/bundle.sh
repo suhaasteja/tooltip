@@ -37,8 +37,25 @@ cp -R "Sources/AskAI/Sprites" "${BUNDLE}/Contents/Resources/Sprites"
 
 printf 'APPL????' > "${BUNDLE}/Contents/PkgInfo"
 
-echo "==> codesign (ad-hoc, with entitlements)"
-codesign --force --sign - \
+# Signing identity.
+#
+# Ad-hoc (`-`) mints a NEW code identity on every signature. The Keychain binds
+# an item's ACL to the signing identity, so each rebuild looks like a different
+# application and macOS re-prompts for the login password before handing over the
+# API key. Rebuilding a dozen times in a session means a dozen prompts.
+#
+# A stable identity fixes it: authorize once, and every later build is the same
+# app as far as the Keychain is concerned. Set ASKAI_SIGN_ID to a certificate
+# name from `security find-identity -v -p codesigning`, or leave it unset to fall
+# back to ad-hoc. See NOTES.md.
+SIGN_ID="${ASKAI_SIGN_ID:--}"
+if [ "${SIGN_ID}" = "-" ]; then
+  echo "==> codesign (ad-hoc -- expect Keychain prompts after every rebuild)"
+else
+  echo "==> codesign (${SIGN_ID})"
+fi
+
+codesign --force --sign "${SIGN_ID}" \
   --entitlements Resources/AskAI.entitlements \
   --timestamp=none \
   "${BUNDLE}"

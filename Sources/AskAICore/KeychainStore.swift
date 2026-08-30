@@ -16,17 +16,42 @@ public struct KeychainStore {
     public let service: String
     public let account: String
 
-    public init(service: String = "com.yourname.AskAI", account: String = "anthropic-api-key") {
+    /// Opt into the data protection keychain (the iOS-style one) instead of the
+    /// legacy file-based login keychain.
+    ///
+    /// This is the difference between "no prompts, ever" and "a login-password
+    /// dialog whenever the signing identity changes". The legacy keychain guards
+    /// each item with an ACL listing the applications allowed to read it, and an
+    /// app whose code signature has changed is, correctly, a different
+    /// application -- so it asks. The data protection keychain has no ACLs: access
+    /// is decided by the app's access group, derived from its team identifier.
+    ///
+    /// The catch is that it *requires* a team identifier. An ad-hoc signature has
+    /// none, so every call fails with `errSecMissingEntitlement` (-34018). Hence
+    /// the flag rather than a hard switch: it can only be turned on for builds
+    /// signed with a real identity. See NOTES.md.
+    public let useDataProtection: Bool
+
+    public init(
+        service: String = "com.yourname.AskAI",
+        account: String = "anthropic-api-key",
+        useDataProtection: Bool = false
+    ) {
         self.service = service
         self.account = account
+        self.useDataProtection = useDataProtection
     }
 
     private var baseQuery: [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if useDataProtection {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+        return query
     }
 
     /// Reads the stored secret, or `nil` if there isn't one.
