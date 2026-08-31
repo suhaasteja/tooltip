@@ -36,15 +36,50 @@ struct SpriteStudioView: View {
     // MARK: Which character is in use
 
     private var characterPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Picker("Character", selection: $model.activeSetID) {
-                ForEach(model.installedSets) { set in
-                    Text(set.name).tag(set.id)
+        HStack(alignment: .top, spacing: 14) {
+            // The character itself, animated, so switching between them is a
+            // matter of looking rather than remembering what a name refers to.
+            VStack(spacing: 4) {
+                FramePlayerView(player: model.player, height: 72)
+                    .frame(width: 84)
+                Text(model.previewMood.rawValue)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Character", selection: $model.activeSetID) {
+                    ForEach(model.installedSets) { set in
+                        Text(set.name).tag(set.id)
+                    }
+                }
+                Picker("Preview", selection: $model.previewMood) {
+                    ForEach(SpriteMood.allCases, id: \.self) { mood in
+                        Text(Self.label(for: mood)).tag(mood)
+                    }
+                }
+                if model.player.prefersReducedMotion {
+                    Text("Holding still because Reduce Motion is on.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Shown beside the answer when you use Ask AI.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            Text("Shown beside the answer when you use Ask AI.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Moods are named for the panel state they come from; these say what the
+    /// user would actually see happen.
+    private static func label(for mood: SpriteMood) -> String {
+        switch mood {
+        case .thinking: return "Thinking about an answer"
+        case .talking: return "Explaining the answer"
+        case .confused: return "Something went wrong"
+        case .searching: return "Nothing was selected"
+        case .idle: return "Waiting"
         }
     }
 
@@ -176,6 +211,20 @@ struct SpriteStudioView: View {
             Text("Generated characters vary. Keep this one only if it looks right.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            // Animated first, then the frames laid out flat. The animation shows
+            // whether it reads as thinking; the strip shows whether any single
+            // frame came out mangled.
+            HStack(alignment: .center, spacing: 14) {
+                FramePlayerView(player: model.player, height: 72)
+                    .frame(width: 84)
+                Picker("Preview", selection: $model.previewMood) {
+                    ForEach(SpriteMood.allCases, id: \.self) { mood in
+                        Text(Self.label(for: mood)).tag(mood)
+                    }
+                }
+                .frame(maxWidth: 230)
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {

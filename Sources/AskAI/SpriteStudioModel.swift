@@ -51,8 +51,18 @@ final class SpriteStudioModel: ObservableObject {
             guard activeSetID != oldValue else { return }
             store.activeSpriteSetID = activeSetID
             onChange()
+            refreshPreview()
         }
     }
+
+    /// Which mood the preview plays. Defaults to the loop, since that is the
+    /// one the user will actually watch in the panel.
+    @Published var previewMood: SpriteMood = .thinking {
+        didSet { refreshPreview() }
+    }
+
+    /// Animates whichever character is selected, or the one just generated.
+    let player = FramePlayer()
     /// Shown once, before the first paid run.
     @Published var showCostWarning = false
 
@@ -84,6 +94,39 @@ final class SpriteStudioModel: ObservableObject {
         self.imageAPIKey = ""
         self.thinkingPrompt = store.thinkingPrompt
         self.posesPrompt = store.posesPrompt
+        refreshPreview()
+    }
+
+    // MARK: - Preview
+
+    /// Loads the selected character's frames and plays the chosen mood.
+    ///
+    /// Reads through `SpriteLoader`, the same path the panel uses, so what the
+    /// preview shows is what the panel will show — including a set that has lost
+    /// its frames, which resolves to the built-in one rather than to nothing.
+    func refreshPreview() {
+        // A generated character awaiting keep-or-discard takes precedence: it is
+        // the thing the user is being asked to judge.
+        if !previewFrames.isEmpty {
+            playPreviewOfPending()
+            return
+        }
+        let set = store.activeSpriteSet(store: sets)
+        var images: [String: NSImage] = [:]
+        for name in set.allFrames {
+            images[name] = SpriteLoader.image(named: name, in: set)
+        }
+        player.play(set.animation(for: previewMood), from: images)
+    }
+
+    private func playPreviewOfPending() {
+        guard let pending else { return }
+        player.play(pending.set.animation(for: previewMood), from: previewFrames)
+    }
+
+    /// Stops the preview timer. Called when the Settings window closes.
+    func stopPreview() {
+        player.stop()
     }
 
     /// True when the configured LLM key already works for images, so the user
@@ -183,12 +226,14 @@ final class SpriteStudioModel: ObservableObject {
         phase = .idle
         previewFrames = [:]
         pending = nil
+        refreshPreview()
     }
 
     private func finish(_ output: SpriteGenerationJob.Output) {
         pending = output
         previewFrames = output.frames.compactMapValues { NSImage(data: $0) }
         phase = .preview
+        playPreviewOfPending()
     }
 
     // MARK: - Keeping or discarding
@@ -202,10 +247,13 @@ final class SpriteStudioModel: ObservableObject {
             // Drop any cached frames under this id first: regenerating a
             // character reuses its id, and stale images would win.
             SpriteLoader.forget(pending.set.id)
-            activeSetID = pending.set.id
             self.pending = nil
             previewFrames = [:]
             phase = .idle
+            // Assign last: the didSet refreshes the preview, and it must read
+            // the saved frames rather than the ones being cleared above.
+            activeSetID = pending.set.id
+            refreshPreview()
         } catch {
             phase = .failed("Couldn't save the character: \(error.localizedDescription)")
         }
@@ -215,6 +263,7 @@ final class SpriteStudioModel: ObservableObject {
         pending = nil
         previewFrames = [:]
         phase = .idle
+        refreshPreview()
     }
 
     func refreshSets() {

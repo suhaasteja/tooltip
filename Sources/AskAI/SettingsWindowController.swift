@@ -35,8 +35,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             self.window = window
         }
 
-        // Pick up characters installed since the window was last opened.
+        // Pick up characters installed since the window was last opened, and
+        // restart the preview that windowWillClose stopped.
         sprites.refreshSets()
+        sprites.refreshPreview()
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
@@ -44,6 +46,9 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// Drop back to accessory behaviour once the window closes so the app does
     /// not linger as the active application with nothing on screen.
     func windowWillClose(_ notification: Notification) {
+        // Stop the preview timer: a character animating in a window nobody can
+        // see is exactly the battery cost the panel is careful to avoid.
+        sprites.stopPreview()
         NSApp.hide(nil)
     }
 }

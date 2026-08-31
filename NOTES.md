@@ -1067,3 +1067,32 @@ The ~12% mood-to-mood size difference recorded earlier is more noticeable with
 these sheets — the pose frames carry more empty width than the thinking frames,
 so the character reads as smaller when it starts explaining. Same cause: each
 sheet is union-cropped independently. Stage 6.
+
+## Animated character preview in Settings
+
+The Sprites tab now shows the selected character animated, with a mood picker, so
+choosing between characters is a matter of looking rather than remembering what a
+name refers to. The same view animates a freshly generated character while the
+user decides whether to keep it — the flat frame strip stays underneath, because
+the animation shows whether it *reads* as thinking while the strip shows whether
+any single frame came out mangled.
+
+`FramePlayer` is deliberately separate from `SpriteAnimator`. The panel's
+animator resolves frames from disk; Settings has to animate two things the panel
+never does — a character that exists only in memory because it has not been kept
+yet, and an arbitrary mood of an installed character. Both reduce to "these
+images, in this order", which is a much smaller job.
+
+Two things it inherits from the panel on purpose:
+
+- **Reduce Motion is honoured.** A preview arguably exists to show motion, so
+  this is the one place ignoring it could be defended — but an app that respects
+  the setting everywhere except where it matters is just inconsistent. The view
+  says why the character is holding still instead of leaving it looking broken.
+- **The timer stops when the window closes.** `windowWillClose` calls
+  `stopPreview()`, and `show()` restarts it. A character animating in a window
+  nobody can see is exactly the battery cost the panel is careful to avoid.
+
+Mood labels in the picker describe what the user would see happen ("Thinking
+about an answer") rather than the enum case, which is named for the panel state
+it comes from.
