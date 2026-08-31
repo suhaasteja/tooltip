@@ -195,3 +195,140 @@ struct BubbleSideTests {
         #expect(side(atX: fits + 1) == .left)
     }
 }
+
+@Suite("Panel window placement at screen edges")
+struct WindowOriginTests {
+
+    private let gap = PanelPlacement.pointerGap
+    private let margin = PanelPlacement.screenMargin
+
+    /// Real geometry rather than an invented rect: where the character sits
+    /// inside the window is exactly what decides whether clamping drags it off
+    /// the user's word, so inventing it would test the wrong thing.
+    private func geometry(side: BubbleSide) -> BubbleGeometry {
+        BubbleLayout.geometry(
+            bubbleSize: CGSize(width: 300, height: 140),
+            characterSize: CGSize(width: 84, height: 66),
+            tailSize: CGSize(width: 11, height: 18),
+            side: side, gap: 4, inset: 22, tailDropFromTop: 26)
+    }
+
+    private var windowSize: CGSize { geometry(side: .right).windowSize }
+    private var character: CGRect { geometry(side: .right).characterRect }
+
+    private func place(
+        _ anchor: CGPoint, side: BubbleSide = .right, screens: [CGRect] = [mainScreen]
+    ) -> CGRect {
+        let g = geometry(side: side)
+        return CGRect(origin: PanelPlacement.windowOrigin(
+            anchor: anchor, windowSize: g.windowSize,
+            characterRect: g.characterRect, screens: screens),
+                      size: g.windowSize)
+    }
+
+    /// Where the character lands on screen, given a placed window.
+    private func characterOnScreen(_ window: CGRect, side: BubbleSide = .right) -> CGRect {
+        let c = geometry(side: side).characterRect
+        return CGRect(x: window.minX + c.minX, y: window.minY + c.minY,
+                      width: c.width, height: c.height)
+    }
+
+    @Test("with room, the character hangs just below-right of the anchor")
+    func defaultPlacement() {
+        let anchor = CGPoint(x: 400, y: 600)
+        let onScreen = characterOnScreen(place(anchor))
+        #expect(onScreen.minX == anchor.x + gap)
+        #expect(onScreen.maxY == anchor.y - gap)
+    }
+
+    /// The regression this replaced: reusing `origin` as a clamp flipped the
+    /// window a full width to the left near the right edge, so the character
+    /// ended up hundreds of points from the word it was explaining.
+    @Test("near the right edge the character stays beside the anchor")
+    func rightEdgeDoesNotThrowTheCharacterAway() {
+        let anchor = CGPoint(x: mainScreen.maxX - 30, y: 600)
+        // Near the right edge the bubble flips left, which is what the app does
+        // via `bubbleSide` — so the character is on the window's right.
+        let side = PanelPlacement.bubbleSide(
+            anchor: anchor, characterWidth: 84, bubbleWidth: 300, tailWidth: 11,
+            screens: [mainScreen])
+        #expect(side == .left, "the bubble should have flipped")
+        let window = place(anchor, side: side)
+        let onScreen = characterOnScreen(window, side: side)
+        #expect(window.maxX <= mainScreen.maxX - margin, "window left the screen")
+        // Nudged, not flipped: still within a window's width of the anchor.
+        let drift = abs(onScreen.midX - anchor.x)
+        #expect(drift < 200, "character drifted \(drift)pt from the anchor")
+    }
+
+    @Test("near the left edge the window stays on screen")
+    func leftEdge() {
+        let window = place(CGPoint(x: mainScreen.minX + 4, y: 600))
+        #expect(window.minX >= mainScreen.minX + margin)
+    }
+
+    /// Sliding up from the bottom would park the panel over the very text it is
+    /// explaining, so it flips above the anchor instead.
+    @Test("near the bottom edge the panel flips above the anchor")
+    func bottomEdgeFlipsAbove() {
+        let anchor = CGPoint(x: 400, y: mainScreen.minY + 40)
+        let window = place(anchor)
+        #expect(window.minY >= mainScreen.minY + margin, "window left the screen")
+        #expect(window.minY >= anchor.y, "the whole panel should clear the anchor")
+    }
+
+    /// The bubble legitimately reaches above the character, so a top-edge anchor
+    /// does not mean the window must sit entirely below it — only that it stays
+    /// on screen and does not flip.
+    @Test("near the top edge the panel stays on screen without flipping")
+    func topEdgeStaysBelow() {
+        let anchor = CGPoint(x: 400, y: mainScreen.maxY - 20)
+        let window = place(anchor)
+        #expect(window.maxY <= mainScreen.maxY - margin)
+        #expect(window.minY < anchor.y, "should not have flipped above")
+    }
+
+    @Test("a corner is handled in both axes at once")
+    func bottomRightCorner() {
+        let window = place(CGPoint(x: mainScreen.maxX - 20, y: mainScreen.minY + 20))
+        #expect(window.maxX <= mainScreen.maxX - margin)
+        #expect(window.minY >= mainScreen.minY + margin)
+        #expect(window.minX >= mainScreen.minX + margin)
+    }
+
+    @Test("the window is placed on the display the anchor is on")
+    func usesTheAnchorsScreen() {
+        let anchor = CGPoint(x: 2000, y: 800)      // second display
+        let window = place(anchor, screens: [mainScreen, rightScreen])
+        #expect(window.minX >= rightScreen.minX)
+        #expect(window.maxX <= rightScreen.maxX)
+    }
+
+    @Test("a window taller than the screen is pinned rather than lost")
+    func tallerThanScreen() {
+        let huge = CGSize(width: 420, height: mainScreen.height + 400)
+        let origin = PanelPlacement.windowOrigin(
+            anchor: CGPoint(x: 400, y: 500), windowSize: huge,
+            characterRect: character, screens: [mainScreen])
+        let window = CGRect(origin: origin, size: huge)
+        // Cannot fit, so the top is what stays visible: the character and the
+        // start of the answer matter more than the end.
+        #expect(window.maxY <= mainScreen.maxY - margin + 0.01)
+    }
+
+    @Test("no screens means no clamping")
+    func noScreens() {
+        let anchor = CGPoint(x: 5000, y: 5000)
+        let onScreen = characterOnScreen(place(anchor, screens: []))
+        #expect(onScreen.minX == anchor.x + gap)
+    }
+
+    @Test("clamped moves a rect the minimum distance")
+    func clampIsMinimal() {
+        let rect = CGRect(x: mainScreen.maxX - 100, y: 400, width: 420, height: 220)
+        let result = PanelPlacement.clamped(
+            rect, toScreenContaining: CGPoint(x: 400, y: 400), screens: [mainScreen])
+        #expect(result.maxX == mainScreen.maxX - margin)
+        #expect(result.minY == rect.minY, "y should not have moved")
+    }
+}

@@ -141,3 +141,102 @@ public enum PanelPlacement {
         return min(max(value, lower), upper)
     }
 }
+
+// MARK: - Placing the whole panel around its character
+
+public extension PanelPlacement {
+
+    /// Moves a rect the **minimum** distance needed to sit inside a screen.
+    ///
+    /// Distinct from `origin`, which flips the panel to the other side of the
+    /// pointer when it would overflow. That is right when the panel is placed
+    /// relative to a cursor, and wrong here: this panel is anchored to a
+    /// character that must stay next to the user's text, so overflow should
+    /// nudge it, not throw it a full window's width away.
+    static func clamped(
+        _ rect: CGRect, toScreenContaining anchor: CGPoint,
+        screens: [CGRect], margin: CGFloat = screenMargin
+    ) -> CGRect {
+        guard let frame = screen(containing: anchor, in: screens) else { return rect }
+        var result = rect
+
+        // Push in from whichever edge overflows. If the panel is wider or taller
+        // than the screen, prefer showing its top-left: the character and the
+        // start of the answer matter more than the end.
+        if result.maxX > frame.maxX - margin {
+            result.origin.x = frame.maxX - margin - result.width
+        }
+        if result.minX < frame.minX + margin {
+            result.origin.x = frame.minX + margin
+        }
+        if result.minY < frame.minY + margin {
+            result.origin.y = frame.minY + margin
+        }
+        if result.maxY > frame.maxY - margin {
+            result.origin.y = frame.maxY - margin - result.height
+        }
+        return result
+    }
+
+    /// Where to put a panel window so its character sits beside `anchor`.
+    ///
+    /// The character hangs below the anchor, matching the direction a cursor
+    /// points. When the window will not fit below — the selection is near the
+    /// bottom of the screen — it flips *above* instead, which is a deliberate
+    /// choice rather than the accidental one `origin` used to make: sliding a
+    /// panel up from the bottom edge would park it over the very text it is
+    /// explaining.
+    ///
+    /// - Parameters:
+    ///   - characterRect: the character's rect **in window coordinates**.
+    static func windowOrigin(
+        anchor: CGPoint,
+        windowSize: CGSize,
+        characterRect: CGRect,
+        screens: [CGRect],
+        gap: CGFloat = pointerGap,
+        margin: CGFloat = screenMargin
+    ) -> CGPoint {
+
+        let x = anchor.x + gap - characterRect.minX
+
+        // Below: the character's top sits `gap` under the anchor. The bubble may
+        // reach higher than the character, which is fine — it is off to the side,
+        // not over the text.
+        let below = CGRect(
+            x: x,
+            y: (anchor.y - gap - characterRect.height) - characterRect.minY,
+            width: windowSize.width, height: windowSize.height)
+
+        // Above: the whole *window* clears the anchor, not just the character.
+        // Anchoring the character instead would leave the bubble hanging back
+        // down over the selection, which is the thing this flip exists to avoid.
+        let above = CGRect(
+            x: x, y: anchor.y + gap,
+            width: windowSize.width, height: windowSize.height)
+
+        guard let frame = screen(containing: anchor, in: screens) else {
+            return below.origin
+        }
+
+        func fitsVertically(_ rect: CGRect) -> Bool {
+            rect.minY >= frame.minY + margin && rect.maxY <= frame.maxY - margin
+        }
+
+        let chosen: CGRect
+        if fitsVertically(below) {
+            chosen = below
+        } else if fitsVertically(above) {
+            chosen = above
+        } else {
+            // Neither fits, so the window is taller than the room either side of
+            // the anchor. Take the side with more space and let the clamp trim.
+            let roomBelow = anchor.y - (frame.minY + margin)
+            let roomAbove = (frame.maxY - margin) - anchor.y
+            chosen = roomBelow >= roomAbove ? below : above
+        }
+
+        return clamped(chosen, toScreenContaining: anchor,
+                       screens: screens, margin: margin).origin
+    }
+}

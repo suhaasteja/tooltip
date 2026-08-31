@@ -1286,3 +1286,53 @@ than a workaround. `.scrollWheel` joins the existing mouse-down dismiss monitors
 with the same split: a global scroll anywhere else closes the panel, and a scroll
 inside it does not — otherwise reading a long answer would dismiss the thing being
 read.
+
+## Placement broke near screen edges, and why
+
+Reported as the panel not popping up well when the selected word is close to a
+display edge. The cause was a function being reused for a job it was not written
+for.
+
+`ResultPanel.layout()` called `PanelPlacement.origin(..., gap: 0)`, intending a
+pure clamp — with a zero gap the preferred placement is the identity, so it looks
+like one. But `origin` also *flips*:
+
+```
+if x + width > frame.maxX - margin { x = pointer.x - gap - width }
+```
+
+With `gap == 0` that is `x = origin.x - width`: the whole 420pt window leaps a
+full width to the left, taking the character with it. Same vertically. So a word
+near the right edge got a panel a few hundred points away from it, pointing at
+nothing.
+
+`origin` is not wrong — it is right for hanging a panel off a *cursor*, which is
+what it was written for and what its own tests still cover. It is wrong here,
+because this panel is anchored to a character that must stay beside the user's
+text.
+
+Two new functions replace that use:
+
+- **`clamped(_:toScreenContaining:screens:margin:)`** moves a rect the *minimum*
+  distance to fit. No flips.
+- **`windowOrigin(anchor:windowSize:characterRect:screens:)`** places the window
+  so the character lands beside the anchor, flipping **above** only when the
+  window will not fit below.
+
+The above-flip clears the anchor with the whole *window*, not just the character.
+Anchoring the character instead leaves the bubble hanging back down over the
+selection, which is the thing the flip exists to avoid.
+
+A top-edge anchor deliberately does **not** flip: the bubble reaches above the
+character by design, so the window legitimately extends past the anchor upward
+while staying beside the text.
+
+### The tests needed real geometry
+
+The first version of these tests invented a `characterRect`, and two of the three
+edge cases failed against it for reasons that had nothing to do with the code —
+an invented rect put the character on the wrong side of the window for a
+right-edge anchor, which is precisely the variable that decides whether clamping
+drags the character off the word. They now build the rect with
+`BubbleLayout.geometry` and ask `PanelPlacement.bubbleSide` which flank the
+bubble would really be on, so the cases match what the app does.

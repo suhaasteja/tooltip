@@ -77,12 +77,10 @@ final class ResultPanel: NSObject {
             tailWidth: PanelChrome.tailWidth,
             screens: visibleFrames())
 
-        // Where the character should sit, in screen coordinates. Everything
-        // else is laid out around it, and it stays put for the whole
-        // presentation -- see `layout()`.
-        characterOrigin = CGPoint(
-            x: pointer.x + PanelPlacement.pointerGap,
-            y: pointer.y - PanelPlacement.pointerGap - characterSize.height)
+        // The anchor stays put for the whole presentation; `layout()` places the
+        // window around it, flipping above the anchor near the bottom of a
+        // screen and nudging on-screen only as a last resort.
+        anchorPoint = pointer
 
         layout()
         let tLayout = DispatchTime.now()
@@ -208,9 +206,9 @@ final class ResultPanel: NSObject {
 
     /// Which flank the bubble is on. Fixed for the duration of a presentation.
     private var side: BubbleSide = .right
-    /// The character's bottom-left in screen coordinates. The layout's fixed
-    /// point: everything else is positioned relative to it.
-    private var characterOrigin: CGPoint = .zero
+    /// Where the user's text is. The layout's fixed point: the character is
+    /// placed beside it and everything else around the character.
+    private var anchorPoint: CGPoint = .zero
 
     // MARK: - Layout
 
@@ -242,18 +240,18 @@ final class ResultPanel: NSObject {
         let tailRect = geometry.tailRect
         let windowSize = geometry.windowSize
 
-        // Keep the character pinned to its screen position, then clamp the whole
-        // window on-screen. Clamping can still shift the character -- an answer
-        // that grows past the screen edge has to move something -- but it is the
-        // last resort rather than the default.
-        var origin = CGPoint(x: characterOrigin.x - characterRect.minX,
-                             y: characterOrigin.y - characterRect.minY)
-        // gap:0 makes `origin` an identity placement, so this is purely a clamp.
-        origin = PanelPlacement.origin(
-            pointer: CGPoint(x: origin.x, y: origin.y + windowSize.height),
-            panelSize: windowSize,
-            screens: visibleFrames(),
-            gap: 0)
+        // Place the window so the character lands beside the anchor.
+        //
+        // Not `PanelPlacement.origin`: that hangs a panel off a *pointer* and
+        // flips it a full window's width when it would overflow, which threw the
+        // character away from the user's text near a screen edge. `windowOrigin`
+        // flips only vertically, deliberately, and otherwise nudges.
+        let origin = PanelPlacement.windowOrigin(
+            anchor: anchorPoint,
+            windowSize: windowSize,
+            characterRect: CGRect(x: characterRect.minX, y: characterRect.minY,
+                                  width: characterRect.width, height: characterRect.height),
+            screens: visibleFrames())
 
         panel.setFrame(NSRect(origin: origin, size: windowSize), display: true)
         container.frame = NSRect(origin: .zero, size: windowSize)
