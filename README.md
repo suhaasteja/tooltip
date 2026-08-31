@@ -2,11 +2,16 @@
 
 A background macOS app that adds **"Ask AI"** entries to the system Services
 menu. Select text in almost any app, invoke the service (right-click → Services,
-or a keyboard shortcut you bind yourself), and the selection is sent to Claude
-with a prompt you control. The answer appears in a floating panel at the pointer
-without taking focus away from what you were reading.
+or a keyboard shortcut you bind yourself), and the selection is sent to the model
+of your choice with a prompt you control. The answer appears in a floating panel
+at the pointer without taking focus away from what you were reading.
 
 No Dock icon. No main window. A menu bar item and a Settings window.
+
+![Highlighting a term and getting an explanation without leaving the page](docs/demo.gif)
+
+*Two lookups, at 2x. The second is near the right edge of the window, where the
+speech bubble flips to the character's other side so it stays on screen.*
 
 ---
 
