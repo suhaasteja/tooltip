@@ -223,3 +223,119 @@ struct SpriteExtractionTests {
         #expect(pitch == nil)
     }
 }
+
+@Suite("Shared scale across sheets")
+struct SharedScaleTests {
+
+    /// A cell holding a character of the given height, on white.
+    private func sheet(columns: Int, rows: Int, characterHeight: Int) -> PixelBitmap {
+        var bitmap = PixelBitmap(width: columns * 200, height: rows * 200)
+        for y in 0..<bitmap.height {
+            for x in 0..<bitmap.width { bitmap[x, y] = (255, 255, 255, 255) }
+        }
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let top = row * 200 + (200 - characterHeight) / 2
+                for y in top..<(top + characterHeight) {
+                    for x in (column * 200 + 80)..<(column * 200 + 120) {
+                        bitmap[x, y] = (20, 20, 20, 255)
+                    }
+                }
+            }
+        }
+        return bitmap
+    }
+
+    private func opaqueHeight(_ frame: PixelBitmap) -> Int {
+        var top = -1, bottom = -1
+        for y in 0..<frame.height {
+            for x in 0..<frame.width where frame[x, y].a > 0 {
+                if top < 0 { top = y }
+                bottom = y
+                break
+            }
+        }
+        return top < 0 ? 0 : bottom - top + 1
+    }
+
+    /// The defect this exists to prevent: cut alone, a 100px character and a
+    /// 150px character both fill their frame, so the same character appears at
+    /// two sizes depending on which mood is showing.
+    @Test("cutting sheets separately makes equal characters look different")
+    func separateCuttingIsInconsistent() throws {
+        let short = try SpriteExtractor.frames(
+            from: sheet(columns: 2, rows: 1, characterHeight: 100),
+            columns: 2, rows: 1, options: .init(targetHeight: 120))
+        let tall = try SpriteExtractor.frames(
+            from: sheet(columns: 2, rows: 1, characterHeight: 150),
+            columns: 2, rows: 1, options: .init(targetHeight: 120))
+        // Both fill their frame: the size difference has been erased.
+        #expect(opaqueHeight(short[0]) == opaqueHeight(tall[0]))
+    }
+
+    @Test("cutting sheets together preserves their relative sizes")
+    func sharedScaleIsConsistent() throws {
+        let cut = try SpriteExtractor.frames(
+            fromSheets: [
+                (sheet(columns: 2, rows: 1, characterHeight: 100), 2, 1, []),
+                (sheet(columns: 2, rows: 1, characterHeight: 150), 2, 1, []),
+            ],
+            options: .init(targetHeight: 120))
+
+        let short = opaqueHeight(cut[0][0])
+        let tall = opaqueHeight(cut[1][0])
+        #expect(tall > short, "the taller character should still be taller")
+        // 150/100 = 1.5, within a pixel or two of rounding.
+        let ratio = Double(tall) / Double(short)
+        #expect(abs(ratio - 1.5) < 0.1, "ratio was \(ratio)")
+    }
+
+    @Test("every frame of every sheet shares one canvas size")
+    func canvasIsShared() throws {
+        let cut = try SpriteExtractor.frames(
+            fromSheets: [
+                (sheet(columns: 3, rows: 2, characterHeight: 100), 3, 2, []),
+                (sheet(columns: 2, rows: 2, characterHeight: 150), 2, 2, []),
+            ],
+            options: .init(targetHeight: 132))
+        let sizes = Set(cut.flatMap { $0 }.map { "\($0.width)x\($0.height)" })
+        #expect(sizes.count == 1, "frames came out at \(sizes)")
+    }
+
+    @Test("characters sit on the canvas floor rather than floating")
+    func bottomAligned() throws {
+        let cut = try SpriteExtractor.frames(
+            fromSheets: [
+                (sheet(columns: 1, rows: 1, characterHeight: 80), 1, 1, []),
+                (sheet(columns: 1, rows: 1, characterHeight: 160), 1, 1, []),
+            ],
+            options: .init(targetHeight: 120))
+        // The short character's feet should be at the bottom, not mid-air.
+        let shortFrame = cut[0][0]
+        var lastOpaqueRow = -1
+        for y in 0..<shortFrame.height {
+            for x in 0..<shortFrame.width where shortFrame[x, y].a > 0 {
+                lastOpaqueRow = y
+                break
+            }
+        }
+        #expect(lastOpaqueRow >= shortFrame.height - 2,
+                "character floats: last opaque row \(lastOpaqueRow) of \(shortFrame.height)")
+    }
+
+    @Test("an empty sheet list returns nothing rather than throwing")
+    func emptyInput() throws {
+        #expect(try SpriteExtractor.frames(fromSheets: []).isEmpty)
+    }
+
+    @Test("one sheet through the shared path matches the single-sheet path")
+    func singleSheetUnchanged() throws {
+        let bitmap = sheet(columns: 3, rows: 2, characterHeight: 120)
+        let options = SpriteExtractor.Options(targetHeight: 132)
+        let alone = try SpriteExtractor.frames(
+            from: bitmap, columns: 3, rows: 2, options: options)
+        let together = try SpriteExtractor.frames(
+            fromSheets: [(bitmap, 3, 2, [])], options: options)
+        #expect(alone == together[0])
+    }
+}

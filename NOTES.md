@@ -1131,3 +1131,61 @@ redesign have walk-cycle **art**. No manifest edit turns a walk cycle into
 pondering — the frames are the actions. Regenerate is the only fix, and it costs
 a paid run per character, so it is a button rather than something the app does on
 anyone's behalf.
+
+## Robustness and one shared scale (PLAN-sprites.md Stage 6)
+
+### The character no longer changes size between moods
+
+Each sheet used to be scaled to `targetHeight` from **its own** union crop. So a
+character the model happened to draw at 213px in one sheet and 240px in another
+came out the same height in both — which means the *same pose* ended up at two
+different sizes, and the character visibly grew when it started thinking. The
+side-by-side mood preview in Settings made it obvious; a minute apart in the
+panel, it was easy to miss.
+
+Extraction is now two phases. `measure` finds each sheet's crop and masks;
+`render` draws onto a canvas that is the union across **all** sheets, at one
+scale. Relative sizes the model drew are preserved, which is what makes the
+moods look like one character. Frames are bottom-aligned on the canvas rather
+than centred: characters stand on the ground, so a shorter pose should read as
+crouching, not floating.
+
+Measured on a regenerated character — every frame now shares a 168x132 canvas:
+
+```
+walk-0  content  93x109      pose-0 (idle)       91x114
+walk-3  content  93x119      pose-1 (explaining)139x121
+                             pose-2 (puzzled)   168x124
+```
+
+`pose-0` at 91x114 against `walk-0` at 93x109 is the point: the resting body is
+now the same size in both sheets. The wider poses are wider because the character
+genuinely spreads its wings, which is correct rather than a scale artefact.
+
+The single-sheet path is unchanged and the vendored frames are still
+byte-identical, because one sheet's canvas is its own crop.
+
+### Limits on user-supplied content
+
+Frames can be hand-installed, not only generated, so `save` now validates before
+writing anything: an empty frame is rejected, a frame over 1 MB is rejected (a
+132px PNG is tens of kilobytes), and the total across all characters is capped at
+100 MB. Validation happens **before** the first write, so a refusal leaves nothing
+behind — the manifest-last ordering only protects against interrupted writes, not
+invalid ones. Replacing a character does not count against the budget twice, or
+regenerating would eventually be refused for no reason.
+
+### A tooling mistake worth recording
+
+Two contact sheets in this session rendered **stale data**. They were made by
+`sed`-ing a path into a copy of an earlier script, and the pattern did not match,
+so the copy silently kept reading the original directory while writing to a
+new-looking filename. One of them was used to claim the aspect-ratio fix worked.
+
+The numbers were right throughout — the measurement scripts used a substitution
+that did match — but the pictures were of the wrong thing. The contact sheet now
+takes its directory as an argument and prints how many frames it found, so it
+cannot quietly render nothing or something else.
+
+Two conclusions in this session have now been reached by looking at an image;
+both times the image needed checking as carefully as the code.

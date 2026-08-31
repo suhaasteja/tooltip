@@ -70,12 +70,40 @@ public struct SpriteSetStore {
         return [SpriteSet.builtIn] + userSets
     }
 
+    /// Largest a single frame may be, in bytes.
+    ///
+    /// A 132px-tall PNG is a few tens of kilobytes; a megabyte means something
+    /// is wrong, and frames are user-supplied content now — they can be
+    /// hand-installed, not only generated.
+    public static let maxFrameBytes = 1_000_000
+
+    /// Largest all characters may occupy together, in bytes.
+    ///
+    /// The app is sandboxed, so this fills the user's container rather than
+    /// their disk, but a runaway set count is still their storage.
+    public static let maxTotalBytes = 100_000_000
+
     /// Writes a set's manifest and frames.
     ///
     /// - Parameter frames: PNG data keyed by the basenames the manifest uses.
     public func save(_ set: SpriteSet, frames: [String: Data]) throws {
         guard set.id != SpriteSet.builtInID else {
             throw SpriteSetError.cannotOverwriteBuiltIn
+        }
+        // Validate before writing anything: a partial write that then fails is
+        // worse than a refusal, and the manifest-last ordering below only
+        // protects against *interrupted* writes, not invalid ones.
+        for (name, data) in frames {
+            guard !data.isEmpty else { throw SpriteSetError.emptyFrame(name) }
+            guard data.count <= Self.maxFrameBytes else {
+                throw SpriteSetError.frameTooLarge(name, data.count)
+            }
+        }
+        // Replacing an existing set does not count against the budget twice.
+        let incoming = frames.values.reduce(0) { $0 + $1.count }
+        let existing = sizeOnDisk(id: set.id)
+        if totalSizeOnDisk() - existing + incoming > Self.maxTotalBytes {
+            throw SpriteSetError.outOfSpace
         }
         let directory = self.directory(for: set.id)
         try FileManager.default.createDirectory(
@@ -116,8 +144,16 @@ public struct SpriteSetStore {
         try encoder.encode(renamed).write(to: manifestURL(for: id))
     }
 
-    /// Total bytes on disk, for the disk-use cap in Stage 6 and for showing the
-    /// user what their characters cost them.
+    /// Every installed character's bytes together.
+    public func totalSizeOnDisk() -> Int {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles])) ?? []
+        return contents.reduce(0) { $0 + sizeOnDisk(id: $1.lastPathComponent) }
+    }
+
+    /// Total bytes on disk for one character, also shown in Settings so the user
+    /// can see what their characters cost them.
     public func sizeOnDisk(id: String) -> Int {
         let directory = self.directory(for: id)
         guard let files = try? FileManager.default.contentsOfDirectory(
@@ -145,6 +181,9 @@ public enum SpriteSetError: Error, Equatable {
     case cannotOverwriteBuiltIn
     case notFound
     case emptyName
+    case emptyFrame(String)
+    case frameTooLarge(String, Int)
+    case outOfSpace
 
     public var userMessage: String {
         switch self {
@@ -154,6 +193,14 @@ public enum SpriteSetError: Error, Equatable {
             return "That character is no longer installed."
         case .emptyName:
             return "A character needs a name."
+        case .emptyFrame(let name):
+            return "Frame \(name) is empty."
+        case .frameTooLarge(let name, let bytes):
+            let size = ByteCountFormatter.string(
+                fromByteCount: Int64(bytes), countStyle: .file)
+            return "Frame \(name) is \(size), which is too large for a sprite."
+        case .outOfSpace:
+            return "There is no room for another character. Delete one first."
         }
     }
 }

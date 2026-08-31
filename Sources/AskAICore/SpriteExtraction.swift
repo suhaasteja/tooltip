@@ -118,6 +118,19 @@ public enum SpriteExtractor {
 
     // MARK: - Entry point
 
+    /// One sheet, measured but not yet rendered.
+    ///
+    /// Measuring and rendering are separate so several sheets can share one
+    /// scale. See `frames(fromSheets:options:)`.
+    public struct Measurement {
+        let sheet: PixelBitmap
+        let cells: [Box]
+        let indices: [Int]
+        let masks: [Int: [Bool]]
+        /// Union of every character's bounds, in cell coordinates.
+        public let crop: Box
+    }
+
     /// Slices a sheet and returns one transparent, aligned frame per cell.
     ///
     /// - Parameter keep: cell indices in row-major order, or empty for all.
@@ -128,6 +141,49 @@ public enum SpriteExtractor {
         keep: [Int] = [],
         options: Options = Options()
     ) throws -> [PixelBitmap] {
+        let measurement = try measure(
+            from: sheet, columns: columns, rows: rows, keep: keep, options: options)
+        return render(measurement, canvas: measurement.crop, options: options)
+    }
+
+    /// Cuts several sheets with **one shared scale**, so the character is the
+    /// same size in every mood.
+    ///
+    /// Cutting each sheet alone gets this wrong in a way that is invisible until
+    /// the moods are seen side by side. Every sheet scales its own union crop to
+    /// `targetHeight`, so a character the model happened to draw at 213px in one
+    /// sheet and 240px in another comes out the same height in both — which
+    /// means the *same pose* ends up at two different sizes, and the character
+    /// visibly grows when it starts thinking.
+    ///
+    /// Taking the union across all sheets and scaling everything by it keeps the
+    /// relative sizes the model drew, which is what makes the moods look like one
+    /// character.
+    public static func frames(
+        fromSheets sheets: [(bitmap: PixelBitmap, columns: Int, rows: Int, keep: [Int])],
+        options: Options = Options()
+    ) throws -> [[PixelBitmap]] {
+        let measurements = try sheets.map {
+            try measure(from: $0.bitmap, columns: $0.columns, rows: $0.rows,
+                        keep: $0.keep, options: options)
+        }
+        guard let first = measurements.first else { return [] }
+        // One canvas for every frame of every sheet: same scale, same size.
+        let canvas = measurements.dropFirst().reduce(first.crop) {
+            Box(x: 0, y: 0,
+                width: max($0.width, $1.crop.width),
+                height: max($0.height, $1.crop.height))
+        }
+        return measurements.map { render($0, canvas: canvas, options: options) }
+    }
+
+    public static func measure(
+        from sheet: PixelBitmap,
+        columns: Int,
+        rows: Int,
+        keep: [Int] = [],
+        options: Options = Options()
+    ) throws -> Measurement {
 
         let cellWidth = sheet.width / columns
         let cellHeight = sheet.height / rows
@@ -142,21 +198,32 @@ public enum SpriteExtractor {
         }
         let indices = keep.isEmpty ? Array(cells.indices) : keep
 
-        // Per cell: the character's mask and its bounds, in cell coordinates.
-        var masks: [Int: (mask: [Bool], bounds: Box)] = [:]
+        var masks: [Int: [Bool]] = [:]
         var crop: Box?
         for index in indices {
             guard let found = character(in: sheet, cell: cells[index], options: options)
             else { continue }
-            masks[index] = found
+            masks[index] = found.mask
             crop = crop.map { union($0, found.bounds) } ?? found.bounds
         }
         // One crop for every frame, so the character does not drift between them.
         guard let crop else { throw ExtractionError.noCharacters }
 
-        return indices.map { index in
-            render(sheet: sheet, cell: cells[index], crop: crop,
-                   mask: masks[index]?.mask, options: options)
+        return Measurement(sheet: sheet, cells: cells, indices: indices,
+                           masks: masks, crop: crop)
+    }
+
+    /// Renders a measured sheet onto `canvas`.
+    ///
+    /// The scale comes from `canvas`, not from the sheet's own crop, which is
+    /// what lets several sheets share one. The character keeps its position
+    /// within its own crop and the extra room becomes transparent margin.
+    static func render(
+        _ m: Measurement, canvas: Box, options: Options
+    ) -> [PixelBitmap] {
+        m.indices.map { index in
+            render(sheet: m.sheet, cell: m.cells[index], crop: m.crop,
+                   canvas: canvas, mask: m.masks[index], options: options)
         }
     }
 
@@ -281,12 +348,21 @@ public enum SpriteExtractor {
     // MARK: - Rendering a frame
 
     private static func render(
-        sheet: PixelBitmap, cell: Box, crop: Box, mask: [Bool]?, options: Options
+        sheet: PixelBitmap, cell: Box, crop: Box, canvas: Box,
+        mask: [Bool]?, options: Options
     ) -> PixelBitmap {
         let height = options.targetHeight
-        let scale = Double(height) / Double(crop.height)
-        let outWidth = max(1, Int((Double(crop.width) * scale).rounded()))
+        // Scale from the shared canvas, so every sheet renders at one scale.
+        let scale = Double(height) / Double(canvas.height)
+        let outWidth = max(1, Int((Double(canvas.width) * scale).rounded()))
         var out = PixelBitmap(width: outWidth, height: height)
+
+        // Centre this sheet's crop horizontally in the shared canvas, and sit it
+        // on the canvas floor. Bottom-aligned rather than centred vertically:
+        // characters stand on the ground, and a shorter pose should look like it
+        // is crouching, not floating.
+        let offsetX = (canvas.width - crop.width) / 2
+        let offsetY = canvas.height - crop.height
 
         // Optionally align sampling to the generated art's pixel blocks. Falls
         // back silently when no clear pitch is found — a 2.5% improvement must
@@ -299,9 +375,17 @@ public enum SpriteExtractor {
             // Sample the centre of the output pixel: sampling its corner drifts
             // by half a pixel and shows up as the character shifting between
             // frames.
-            let sy = sampleIndex(oy, scale: scale, limit: crop.height, pitch: pitch)
+            //
+            // Coordinates walk the *canvas*, then shift into this sheet's crop.
+            // Anything landing outside the crop is canvas margin and stays
+            // transparent, which is how a smaller sheet keeps its true size.
+            let canvasY = sampleIndex(oy, scale: scale, limit: canvas.height, pitch: pitch)
+            let sy = canvasY - offsetY
             for ox in 0..<outWidth {
-                let sx = sampleIndex(ox, scale: scale, limit: crop.width, pitch: pitch)
+                let canvasX = sampleIndex(ox, scale: scale, limit: canvas.width, pitch: pitch)
+                let sx = canvasX - offsetX
+                guard sx >= 0, sy >= 0, sx < crop.width, sy < crop.height else { continue }
+
                 let cx = crop.x + sx, cy = crop.y + sy
                 guard cx >= 0, cy >= 0, cx < cell.width, cy < cell.height else { continue }
 

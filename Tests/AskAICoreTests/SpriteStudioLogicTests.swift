@@ -309,3 +309,73 @@ struct SpriteSetCRUDTests {
         #expect(store.sizeOnDisk(id: "ghost") == 0)
     }
 }
+
+@Suite("Sprite set limits", .serialized)
+struct SpriteSetLimitTests {
+
+    private func makeStore() -> SpriteSetStore {
+        SpriteSetStore(root: URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("askai-limits-\(UUID().uuidString)"))
+    }
+
+    private func set(id: String = "x") -> SpriteSet {
+        SpriteSet(id: id, name: id,
+                  animations: [SpriteMood.idle.rawValue:
+                    SpriteAnimation(frames: ["pose-0"], frameDuration: 1, loops: false)])
+    }
+
+    /// Frames are user-supplied content once sets can be hand-installed, so a
+    /// bogus one must be refused rather than decoded.
+    @Test("an oversized frame is rejected")
+    func oversizedFrameRejected() {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        let huge = Data(repeating: 0, count: SpriteSetStore.maxFrameBytes + 1)
+        #expect(throws: SpriteSetError.frameTooLarge("pose-0", huge.count)) {
+            try store.save(self.set(), frames: ["pose-0": huge])
+        }
+    }
+
+    @Test("an empty frame is rejected")
+    func emptyFrameRejected() {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        #expect(throws: SpriteSetError.emptyFrame("pose-0")) {
+            try store.save(self.set(), frames: ["pose-0": Data()])
+        }
+    }
+
+    /// Validation happens before any write, so a refusal leaves nothing behind.
+    @Test("a rejected save writes nothing at all")
+    func rejectedSaveIsClean() {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        let huge = Data(repeating: 0, count: SpriteSetStore.maxFrameBytes + 1)
+        try? store.save(set(), frames: ["good": Data([1]), "bad": huge])
+        #expect(store.set(id: "x") == nil)
+        #expect(store.installedSets() == [SpriteSet.builtIn])
+    }
+
+    @Test("size accounting covers every installed character")
+    func totalSize() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        #expect(store.totalSizeOnDisk() == 0)
+        try store.save(set(id: "a"), frames: ["pose-0": Data(repeating: 1, count: 500)])
+        try store.save(set(id: "b"), frames: ["pose-0": Data(repeating: 1, count: 500)])
+        #expect(store.totalSizeOnDisk() >= 1000)
+    }
+
+    /// Replacing a character must not be charged twice against the budget, or
+    /// regenerating would eventually be refused for no reason.
+    @Test("replacing a character does not double-count its size")
+    func replacingIsNotDoubleCounted() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        let payload = Data(repeating: 1, count: 1000)
+        try store.save(set(id: "a"), frames: ["pose-0": payload])
+        let after = store.totalSizeOnDisk()
+        try store.save(set(id: "a"), frames: ["pose-0": payload])
+        #expect(store.totalSizeOnDisk() == after, "size grew on replace")
+    }
+}

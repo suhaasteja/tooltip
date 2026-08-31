@@ -198,10 +198,13 @@ public struct SpriteGenerationJob {
             SpriteSheetSpec.poses(character: description, template: posesTemplate),
         ]
 
-        var frames: [String: Data] = [:]
         var sheets: [String: GeneratedImage] = [:]
-        var animations: [String: SpriteAnimation] = [:]
+        var bitmaps: [(bitmap: PixelBitmap, columns: Int, rows: Int, keep: [Int])] = []
 
+        // Generate every sheet first, then cut them together. Cutting each as it
+        // arrives would scale each one to its own crop, and the same character
+        // would come out at two different sizes -- visible the moment two moods
+        // are seen side by side. See NOTES.md.
         for (index, spec) in specs.enumerated() {
             progress(.sheet(id: spec.id, index: index + 1, of: specs.count))
             try Task.checkCancellation()
@@ -212,14 +215,21 @@ public struct SpriteGenerationJob {
                 prompt: spec.prompt, reference: reference, aspectRatio: spec.aspectRatio)
             sheets[spec.id] = sheet
 
-            progress(.extracting)
             guard let bitmap = decode(sheet.data) else {
                 throw SpriteGeneratorError.decoding
             }
-            let cut = try SpriteExtractor.frames(
-                from: bitmap, columns: spec.columns, rows: spec.rows, options: options)
+            bitmaps.append((bitmap, spec.columns, spec.rows, []))
+        }
 
-            for (frameIndex, frame) in cut.enumerated() where frameIndex < spec.frameNames.count {
+        progress(.extracting)
+        try Task.checkCancellation()
+        let cutSheets = try SpriteExtractor.frames(fromSheets: bitmaps, options: options)
+
+        var frames: [String: Data] = [:]
+        var animations: [String: SpriteAnimation] = [:]
+        for (specIndex, spec) in specs.enumerated() where specIndex < cutSheets.count {
+            for (frameIndex, frame) in cutSheets[specIndex].enumerated()
+            where frameIndex < spec.frameNames.count {
                 guard let png = encoder(frame) else { throw SpriteGeneratorError.decoding }
                 frames[spec.frameNames[frameIndex]] = png
             }
