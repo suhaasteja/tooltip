@@ -366,7 +366,10 @@ built-in rather than showing an empty character or crashing.
 
 ---
 
-## Stage 6 — Robustness
+## Stage 6 — Robustness — **DONE**
+
+> One shared scale across sheets (the size jump is gone), storage limits, and
+> validation before any write. 231 tests. See NOTES.md.
 
 - A manifest referencing missing frames degrades to the built-in, never traps.
   `SpriteLoader` already returns nil and logs; keep that under the new path.
