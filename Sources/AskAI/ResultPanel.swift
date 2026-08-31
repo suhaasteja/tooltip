@@ -225,15 +225,31 @@ final class ResultPanel: NSObject {
         let bubbleSize = NSSize(width: ResultPanelView.width,
                                 height: max(bubbleView.fittingSize.height, 44))
 
-        let geometry = BubbleLayout.geometry(
-            bubbleSize: bubbleSize,
-            characterSize: characterSize,
-            tailSize: CGSize(width: PanelChrome.tailWidth,
-                             height: PanelChrome.tailHeight),
-            side: side,
-            gap: PanelChrome.gap,
-            inset: PanelChrome.shadowInset,
-            tailDropFromTop: PanelChrome.tailDropFromTop)
+        func measure(_ verticalSide: BubbleVerticalSide) -> BubbleGeometry {
+            BubbleLayout.geometry(
+                bubbleSize: bubbleSize,
+                characterSize: characterSize,
+                tailSize: CGSize(width: PanelChrome.tailWidth,
+                                 height: PanelChrome.tailHeight),
+                side: side,
+                gap: PanelChrome.gap,
+                inset: PanelChrome.shadowInset,
+                tailDropFromTop: PanelChrome.tailDropFromTop,
+                verticalSide: verticalSide)
+        }
+
+        // Measure hanging below, ask whether that fits, and re-measure if not.
+        // Flipping changes the layout rather than just the position — the bubble
+        // grows the other way — so the answer cannot be applied to the first
+        // measurement.
+        var geometry = measure(.below)
+        let screens = visibleFrames()
+        let verticalSide: BubbleVerticalSide = PanelPlacement.prefersAbove(
+            anchor: anchorPoint,
+            windowSize: geometry.windowSize,
+            characterRect: geometry.characterRect,
+            screens: screens) ? .above : .below
+        if verticalSide == .above { geometry = measure(.above) }
 
         let characterRect = geometry.characterRect
         let bubbleRect = geometry.bubbleRect
@@ -249,9 +265,9 @@ final class ResultPanel: NSObject {
         let origin = PanelPlacement.windowOrigin(
             anchor: anchorPoint,
             windowSize: windowSize,
-            characterRect: CGRect(x: characterRect.minX, y: characterRect.minY,
-                                  width: characterRect.width, height: characterRect.height),
-            screens: visibleFrames())
+            characterRect: characterRect,
+            screens: screens,
+            verticalSide: verticalSide)
 
         panel.setFrame(NSRect(origin: origin, size: windowSize), display: true)
         container.frame = NSRect(origin: .zero, size: windowSize)

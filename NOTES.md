@@ -1336,3 +1336,42 @@ right-edge anchor, which is precisely the variable that decides whether clamping
 drags the character off the word. They now build the rect with
 `BubbleLayout.geometry` and ask `PanelPlacement.bubbleSide` which flank the
 bubble would really be on, so the cases match what the app does.
+
+### The bottom-edge flip put the character far above the word
+
+The flip worked — the panel no longer covered the selection — but the character
+ended up ~180pt above it, which reads as a bug even though nothing overlapped.
+Two causes, one after the other.
+
+**Anchoring the wrong thing.** The `above` branch placed the *window's* bottom
+edge at the anchor. The character sits near the top of the window, so the whole
+thing floated. It now mirrors the below case exactly: the character's bottom sits
+`gap` above the anchor, the same distance the below case puts its top below.
+
+**The bubble still grew downward.** Fixing the anchor was not enough, because the
+layout always hung the bubble under the character — so near the screen bottom
+there was no room for it and the clamp shoved everything up again, restoring most
+of the gap. `BubbleLayout.geometry` now takes a `verticalSide`: flipped, the tail
+attaches the same distance from the bubble's *bottom*, and the bubble grows
+upward away from the word.
+
+That makes the flip a layout change rather than a repositioning, so the caller
+cannot decide it from a single measurement. `ResultPanel.layout()` measures the
+below arrangement, asks `PanelPlacement.prefersAbove`, and re-measures when the
+answer is yes. Both measurements are pure arithmetic.
+
+A test now asserts the two directions are **symmetric** — the character is the
+same distance from the anchor whether the panel hangs below or above — which is
+the property that was quietly false.
+
+### A silent no-op, again
+
+The first attempt at the `above` fix did nothing: the `python` replacement was
+matching a comment block an earlier edit had already rewritten, so it found
+nothing and changed nothing, while reporting success. The tests then failed with
+numbers that made no sense against the code as read.
+
+Second time in this session that a text substitution silently matched nothing —
+the other produced two stale contact sheets. Edits that must apply should use a
+tool that fails loudly when the pattern is absent, and the assertion added to the
+one-line debug removal here is the cheap version of that.

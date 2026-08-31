@@ -205,12 +205,34 @@ struct WindowOriginTests {
     /// Real geometry rather than an invented rect: where the character sits
     /// inside the window is exactly what decides whether clamping drags it off
     /// the user's word, so inventing it would test the wrong thing.
-    private func geometry(side: BubbleSide) -> BubbleGeometry {
+    private func geometry(
+        side: BubbleSide, verticalSide: BubbleVerticalSide = .below
+    ) -> BubbleGeometry {
         BubbleLayout.geometry(
             bubbleSize: CGSize(width: 300, height: 140),
             characterSize: CGSize(width: 84, height: 66),
             tailSize: CGSize(width: 11, height: 18),
-            side: side, gap: 4, inset: 22, tailDropFromTop: 26)
+            side: side, gap: 4, inset: 22, tailDropFromTop: 26,
+            verticalSide: verticalSide)
+    }
+
+    /// Mirrors what `ResultPanel.layout()` does: measure below, ask, re-measure.
+    private func placeLikeTheApp(
+        _ anchor: CGPoint, side: BubbleSide = .right, screens: [CGRect] = [mainScreen]
+    ) -> (window: CGRect, character: CGRect) {
+        var g = geometry(side: side)
+        let vertical: BubbleVerticalSide = PanelPlacement.prefersAbove(
+            anchor: anchor, windowSize: g.windowSize,
+            characterRect: g.characterRect, screens: screens) ? .above : .below
+        if vertical == .above { g = geometry(side: side, verticalSide: vertical) }
+        let origin = PanelPlacement.windowOrigin(
+            anchor: anchor, windowSize: g.windowSize, characterRect: g.characterRect,
+            screens: screens, verticalSide: vertical)
+        let window = CGRect(origin: origin, size: g.windowSize)
+        return (window, CGRect(x: window.minX + g.characterRect.minX,
+                               y: window.minY + g.characterRect.minY,
+                               width: g.characterRect.width,
+                               height: g.characterRect.height))
     }
 
     private var windowSize: CGSize { geometry(side: .right).windowSize }
@@ -269,12 +291,34 @@ struct WindowOriginTests {
 
     /// Sliding up from the bottom would park the panel over the very text it is
     /// explaining, so it flips above the anchor instead.
-    @Test("near the bottom edge the panel flips above the anchor")
+    @Test("near the bottom edge the character flips above the anchor")
     func bottomEdgeFlipsAbove() {
         let anchor = CGPoint(x: 400, y: mainScreen.minY + 40)
-        let window = place(anchor)
-        #expect(window.minY >= mainScreen.minY + margin, "window left the screen")
-        #expect(window.minY >= anchor.y, "the whole panel should clear the anchor")
+        let placed = placeLikeTheApp(anchor)
+        #expect(placed.window.minY >= mainScreen.minY + margin, "window left the screen")
+        #expect(placed.character.minY >= anchor.y, "character should sit above the anchor")
+    }
+
+    /// The failure mode that reached a real screenshot: anchoring the window's
+    /// bottom rather than the character left the character floating far above
+    /// the word, because it sits near the top of the window.
+    @Test("the flipped character stays close to the anchor, not far above it")
+    func flippedCharacterStaysClose() {
+        let anchor = CGPoint(x: 400, y: mainScreen.minY + 40)
+        let gapAbove = placeLikeTheApp(anchor).character.minY - anchor.y
+        #expect(gapAbove >= 0, "character dropped below the anchor")
+        #expect(gapAbove < 40, "character floats \(gapAbove)pt above the word")
+    }
+
+    /// Symmetry: below or above, the character should be about as far from the
+    /// word. Only the direction changes.
+    @Test("the character sits the same distance from the anchor either way")
+    func flipIsSymmetric() {
+        let roomy = placeLikeTheApp(CGPoint(x: 400, y: 600)).character
+        let flipped = placeLikeTheApp(CGPoint(x: 400, y: mainScreen.minY + 40)).character
+        let below = CGPoint(x: 400, y: 600).y - roomy.maxY
+        let above = flipped.minY - (mainScreen.minY + 40)
+        #expect(abs(below - above) < 1, "below \(below)pt vs above \(above)pt")
     }
 
     /// The bubble legitimately reaches above the character, so a top-edge anchor

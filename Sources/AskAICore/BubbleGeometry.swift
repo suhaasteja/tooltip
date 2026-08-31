@@ -30,8 +30,21 @@ public struct BubbleGeometry: Equatable, Sendable {
 /// pieces actually relate: the bubble's top edge is the datum and the tail hangs
 /// a fixed distance below it. The whole thing is flipped into AppKit's
 /// bottom-left space exactly once, at the end.
+/// Whether the panel sits below the anchor or above it.
+public enum BubbleVerticalSide: String, Equatable, Sendable {
+    case below
+    case above
+}
+
 public enum BubbleLayout {
 
+    /// - Parameter verticalSide: which way the bubble grows away from the
+    ///   character. `.below` hangs it under the anchor, with the tail near the
+    ///   bubble's top; `.above` mirrors that so the bubble grows upward, which
+    ///   is what a selection near the bottom of the screen needs. Without the
+    ///   mirror the bubble still reaches down past the character, there is no
+    ///   room for it, and the clamp shoves the whole panel up — leaving the
+    ///   character floating far above the word.
     public static func geometry(
         bubbleSize: CGSize,
         characterSize: CGSize,
@@ -39,7 +52,8 @@ public enum BubbleLayout {
         side: BubbleSide,
         gap: CGFloat,
         inset: CGFloat,
-        tailDropFromTop: CGFloat
+        tailDropFromTop: CGFloat,
+        verticalSide: BubbleVerticalSide = .below
     ) -> BubbleGeometry {
 
         let arm = gap + tailSize.width
@@ -48,7 +62,14 @@ public enum BubbleLayout {
         // vertical middle lines up with where the tail meets the bubble. For a
         // short drop this puts its head above the bubble's top edge, which is
         // why the union below can start at a negative y.
-        let characterY = tailDropFromTop - characterSize.height / 2
+        //
+        // Flipped, the tail attaches the same distance from the bubble's BOTTOM,
+        // so the bubble extends upward and the character still sits at the end
+        // nearest the anchor.
+        let tailCentre = verticalSide == .below
+            ? tailDropFromTop
+            : bubbleSize.height - tailDropFromTop
+        let characterY = tailCentre - characterSize.height / 2
 
         let top = min(0, characterY)
         let bottom = max(bubbleSize.height, characterY + characterSize.height)
@@ -77,7 +98,7 @@ public enum BubbleLayout {
                 width: bubbleSize.width, height: bubbleSize.height),
             tailRect: CGRect(
                 x: inset + tailX,
-                y: flip(tailDropFromTop - tailSize.height / 2, tailSize.height),
+                y: flip(tailCentre - tailSize.height / 2, tailSize.height),
                 width: tailSize.width, height: tailSize.height))
     }
 }

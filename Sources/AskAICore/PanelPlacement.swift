@@ -194,6 +194,7 @@ public extension PanelPlacement {
         windowSize: CGSize,
         characterRect: CGRect,
         screens: [CGRect],
+        verticalSide: BubbleVerticalSide = .below,
         gap: CGFloat = pointerGap,
         margin: CGFloat = screenMargin
     ) -> CGPoint {
@@ -211,32 +212,39 @@ public extension PanelPlacement {
         // Above: the whole *window* clears the anchor, not just the character.
         // Anchoring the character instead would leave the bubble hanging back
         // down over the selection, which is the thing this flip exists to avoid.
+        // Above: the character's *bottom* sits `gap` over the anchor — the exact
+        // mirror of the below case, so the character is equally close to the word
+        // whichever way it flips.
+        //
+        // Anchoring the window's bottom edge instead leaves the character
+        // floating ~180pt above the selection, because it sits near the top of
+        // the window. That reached a screenshot before it was caught.
         let above = CGRect(
-            x: x, y: anchor.y + gap,
+            x: x, y: (anchor.y + gap) - characterRect.minY,
             width: windowSize.width, height: windowSize.height)
 
-        guard let frame = screen(containing: anchor, in: screens) else {
-            return below.origin
-        }
-
-        func fitsVertically(_ rect: CGRect) -> Bool {
-            rect.minY >= frame.minY + margin && rect.maxY <= frame.maxY - margin
-        }
-
-        let chosen: CGRect
-        if fitsVertically(below) {
-            chosen = below
-        } else if fitsVertically(above) {
-            chosen = above
-        } else {
-            // Neither fits, so the window is taller than the room either side of
-            // the anchor. Take the side with more space and let the clamp trim.
-            let roomBelow = anchor.y - (frame.minY + margin)
-            let roomAbove = (frame.maxY - margin) - anchor.y
-            chosen = roomBelow >= roomAbove ? below : above
-        }
-
+        let chosen = verticalSide == .below ? below : above
         return clamped(chosen, toScreenContaining: anchor,
                        screens: screens, margin: margin).origin
+    }
+
+    /// Whether the panel should flip above the anchor.
+    ///
+    /// Asked *before* the geometry is rebuilt, because flipping changes the
+    /// layout — the bubble grows the other way — so the caller measures the
+    /// below arrangement, asks this, and re-measures if the answer is yes.
+    static func prefersAbove(
+        anchor: CGPoint,
+        windowSize: CGSize,
+        characterRect: CGRect,
+        screens: [CGRect],
+        gap: CGFloat = pointerGap,
+        margin: CGFloat = screenMargin
+    ) -> Bool {
+        guard let frame = screen(containing: anchor, in: screens) else { return false }
+        let belowBottom = (anchor.y - gap - characterRect.height) - characterRect.minY
+        // Only flip when the panel genuinely will not fit below. Flipping when
+        // it would merely be tight makes the panel jump around for no reason.
+        return belowBottom < frame.minY + margin
     }
 }
