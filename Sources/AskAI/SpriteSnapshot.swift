@@ -99,8 +99,10 @@ enum SpriteSnapshot {
 
         let geometry = BubbleLayout.geometry(
             bubbleSize: bubbleSize,
-            characterSize: CGSize(width: PanelChrome.characterWidth,
-                                  height: PanelChrome.characterHeight),
+            characterSize: SpriteLoader.frameSize(
+                for: model.animator.set,
+                fallback: CGSize(width: PanelChrome.characterWidth,
+                                 height: PanelChrome.characterHeight)),
             tailSize: CGSize(width: PanelChrome.tailWidth,
                              height: PanelChrome.tailHeight),
             side: side,
@@ -125,9 +127,7 @@ enum SpriteSnapshot {
         bubbleHost.frame = geometry.bubbleRect
         container.addSubview(bubbleHost)
 
-        let character = NSHostingView(
-            rootView: SpriteView(animator: model.animator,
-                                 height: PanelChrome.characterHeight))
+        let character = NSHostingView(rootView: SpriteView(animator: model.animator))
         character.frame = geometry.characterRect
         container.addSubview(character)
 

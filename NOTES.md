@@ -1239,3 +1239,50 @@ why its `talking` animation rested on `pose-3` and the owl's rests on `pose-0`.
 
 The panel snapshot baseline was replaced rather than compared: the panel looks
 different on purpose now, and pretending otherwise would defeat the check.
+
+## Why the panel drifted away from the selected text
+
+Reported as the sprite and tooltip sitting further from the selection than they
+used to. It was a regression from the shared-scale change, and the cause was a
+hardcoded slot rather than the placement maths.
+
+Placement is a short chain:
+
+1. `PointerTracker.anchor` — where the user last opened a context menu, or the
+   live pointer if that click is older than 30s.
+2. `ResultPanel.show` puts the character's top `pointerGap` (12pt) below that
+   point: `characterOrigin = (anchor.x + 12, anchor.y - 12 - characterHeight)`.
+3. `BubbleLayout.geometry` lays the bubble and tail out around the character.
+4. `PanelPlacement.origin` clamps the whole window on-screen.
+
+`shadowInset` (22pt) does **not** add distance: the window origin is derived from
+where the character lands, so the transparent margin sits outside it.
+
+The gap came from step 2's `characterHeight` being a constant, 56x72, while
+`SpriteView` used `scaledToFit`. Cutting sheets with one shared scale made frames
+wider — the built-in owl's are 168x132px, so 84x66pt, aspect 1.27 — and a 1.27
+image fitted into a 56x72 slot is width-constrained to 56x44, centred, leaving
+**14pt of dead space above the character**. The panel was not further away; the
+character had shrunk inside its own slot and the top of that slot was empty.
+
+The slot now comes from the frames themselves
+(`SpriteLoader.frameSize(for:fallback:)`), so nothing is letterboxed and the
+character sits exactly `pointerGap` below the anchor. It also renders 1:1 at 2x
+instead of being resampled, which is better for pixel art.
+
+How much this recovers depends on the character's shape: 14pt for the built-in
+owl at 168x132, about 6pt for a narrower one like 123x132. The constants in
+`PanelChrome` are now only a fallback for when no frame can be loaded.
+
+## The panel closes on scroll
+
+It is anchored to a point on screen, not to the text, so once the page moves it
+is pointing at whatever slid underneath. Following the text would need the
+Accessibility API to track the selection's frame, which this app deliberately
+avoids (PLAN.md Stage 9).
+
+macOS's own Look Up popover dismisses on scroll, so that is the convention rather
+than a workaround. `.scrollWheel` joins the existing mouse-down dismiss monitors,
+with the same split: a global scroll anywhere else closes the panel, and a scroll
+inside it does not — otherwise reading a long answer would dismiss the thing being
+read.

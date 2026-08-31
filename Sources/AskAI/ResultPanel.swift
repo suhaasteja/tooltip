@@ -27,6 +27,19 @@ final class ResultPanel: NSObject {
     /// Swaps the character. Safe while the panel is visible.
     func use(spriteSet: SpriteSet) {
         model.animator.use(spriteSet)
+        if panel != nil { layout() }
+    }
+
+    /// The character's slot, taken from its own frames.
+    ///
+    /// Sized to the art rather than to a constant, so nothing is letterboxed.
+    /// A fixed slot put ~14pt of dead space above the character, which reads as
+    /// the panel hovering further from the selected text than it does.
+    private var characterSize: CGSize {
+        SpriteLoader.frameSize(
+            for: model.animator.set,
+            fallback: CGSize(width: PanelChrome.characterWidth,
+                             height: PanelChrome.characterHeight))
     }
 
     private var stateObserver: AnyCancellable?
@@ -56,9 +69,10 @@ final class ResultPanel: NSObject {
         // The side is chosen once per presentation, not per layout pass: a
         // bubble that flipped sides mid-answer because it grew a line would be
         // jarring, and the character would appear to jump across the text.
+        let characterSize = self.characterSize
         side = PanelPlacement.bubbleSide(
             anchor: pointer,
-            characterWidth: PanelChrome.characterWidth,
+            characterWidth: characterSize.width,
             bubbleWidth: ResultPanelView.width,
             tailWidth: PanelChrome.tailWidth,
             screens: visibleFrames())
@@ -68,7 +82,7 @@ final class ResultPanel: NSObject {
         // presentation -- see `layout()`.
         characterOrigin = CGPoint(
             x: pointer.x + PanelPlacement.pointerGap,
-            y: pointer.y - PanelPlacement.pointerGap - PanelChrome.characterHeight)
+            y: pointer.y - PanelPlacement.pointerGap - characterSize.height)
 
         layout()
         let tLayout = DispatchTime.now()
@@ -171,9 +185,9 @@ final class ResultPanel: NSObject {
         container.addSubview(bubble)
 
         // The character rides on transparency, outside the card entirely.
-        let character = NSHostingView(
-            rootView: SpriteView(animator: model.animator,
-                                 height: PanelChrome.characterHeight))
+        // No explicit height: the character fills the rect `layout()` gives it,
+        // which is already its frames' own size.
+        let character = NSHostingView(rootView: SpriteView(animator: model.animator))
         container.addSubview(character)
 
         panel.contentView = container
@@ -215,8 +229,7 @@ final class ResultPanel: NSObject {
 
         let geometry = BubbleLayout.geometry(
             bubbleSize: bubbleSize,
-            characterSize: CGSize(width: PanelChrome.characterWidth,
-                                  height: PanelChrome.characterHeight),
+            characterSize: characterSize,
             tailSize: CGSize(width: PanelChrome.tailWidth,
                              height: PanelChrome.tailHeight),
             side: side,
@@ -268,19 +281,25 @@ final class ResultPanel: NSObject {
     private func installDismissMonitors() {
         guard localMonitor == nil, globalMonitor == nil else { return }
 
-        // Clicks in other applications. Mouse-only global monitors do NOT
-        // require the Accessibility permission (keyboard ones would), so this
-        // keeps the app sandbox-friendly and prompt-free.
+        // Clicks and scrolls in other applications. Mouse-only global monitors
+        // do NOT require the Accessibility permission (keyboard ones would), so
+        // this keeps the app sandbox-friendly and prompt-free.
+        //
+        // Scrolling dismisses because the panel is anchored to a point on
+        // screen, not to the text — once the page moves, it is pointing at
+        // whatever slid under it. macOS's own Look Up popover behaves the same
+        // way, so this is the convention rather than a workaround.
         globalMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         ) { [weak self] _ in
             self?.hide()
         }
 
-        // Clicks inside our own process; dismiss only if outside the panel so
-        // the user can still select text and press Retry.
+        // The same events inside our own process; dismiss only if they landed
+        // outside the panel, so the user can still select text, press Retry, and
+        // scroll a long answer without it vanishing.
         localMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
         ) { [weak self] event in
             guard let self, let panel = self.panel else { return event }
             if event.window !== panel { self.hide() }

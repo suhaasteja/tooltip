@@ -76,10 +76,11 @@ enum PanelChrome {
     /// Bubble text column. Narrower than the old 380pt card because the
     /// character now sits beside it rather than inside it.
     static let bubbleWidth: CGFloat = 300
-    static let characterHeight: CGFloat = 72
-    /// The frames are ~98-100px wide at 2x, so ~50pt at 1x. Rounded up so the
-    /// walk cycle's widest frame never clips.
-    static let characterWidth: CGFloat = 56
+    /// Fallback only. The real slot comes from the active character's frames —
+    /// see `SpriteLoader.frameSize(for:fallback:)`. Frames differ in shape from
+    /// one generated character to the next, and a fixed slot letterboxes them.
+    static let characterHeight: CGFloat = 66
+    static let characterWidth: CGFloat = 84
     static let tailWidth: CGFloat = 11
     static let tailHeight: CGFloat = 18
     /// Space between the character and the tail.

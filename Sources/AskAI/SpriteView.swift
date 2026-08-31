@@ -50,6 +50,22 @@ enum SpriteLoader {
         for frame in set.allFrames { _ = image(named: frame, in: set) }
     }
 
+    /// The point size of this set's frames, or nil if none could be loaded.
+    ///
+    /// Used to size the character's slot in the panel. Hardcoding the slot means
+    /// `scaledToFit` letterboxes the character inside it — dead space that reads
+    /// as the panel sitting further from the selected text than it is, and which
+    /// changes with every character because generated frames are not all the
+    /// same shape.
+    static func frameSize(for set: SpriteSet, fallback: CGSize) -> CGSize {
+        for name in set.allFrames {
+            if let image = image(named: name, in: set), image.size.width > 0 {
+                return image.size
+            }
+        }
+        return fallback
+    }
+
     /// Drops cached frames for a set, so a regenerated character is picked up
     /// without relaunching.
     static func forget(_ setID: String) {
@@ -169,7 +185,10 @@ final class SpriteAnimator: ObservableObject {
 /// The character itself.
 struct SpriteView: View {
     @ObservedObject var animator: SpriteAnimator
-    var height: CGFloat = 66
+    /// Optional. When nil the character fills whatever rect it is given, which
+    /// is what the panel wants: the rect is already the frames' own size, so
+    /// there is nothing to letterbox.
+    var height: CGFloat?
 
     var body: some View {
         Group {
@@ -179,8 +198,8 @@ struct SpriteView: View {
                     .resizable()
                     .scaledToFit()
             } else {
-                // Degrade to the old glyph rather than leaving a hole.
-                Image(systemName: "sparkle").font(.system(size: height * 0.4))
+                // Degrade to a glyph rather than leaving a hole.
+                Image(systemName: "sparkle").font(.system(size: (height ?? 60) * 0.4))
             }
         }
         .frame(height: height)
