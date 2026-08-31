@@ -50,9 +50,7 @@ public enum SpriteExtractor {
         ///
         /// Not 250. Generated backgrounds are not pure white: the JPEG model
         /// rings around outlines and the PNG model tints the background outright
-        /// (measured at 29% pure white). 200 is right for generated sheets; the
-        /// vendored art was cut at 235 and that value is kept for it so the
-        /// committed frames stay reproducible.
+        /// (measured at 29% pure white).
         public var backgroundThreshold: UInt8
 
         /// A component covering at least this fraction of the cell in *both*
@@ -75,8 +73,7 @@ public enum SpriteExtractor {
         /// nearest-neighbour positions.
         ///
         /// Worth ~2.5% fewer stray colours on a JPEG source (197 vs 202 buckets
-        /// measured). Off for the vendored sheets, whose committed output
-        /// predates it.
+        /// measured).
         public var snapToPixelGrid: Bool
 
         public init(
@@ -93,9 +90,13 @@ public enum SpriteExtractor {
             self.snapToPixelGrid = snapToPixelGrid
         }
 
-        /// Settings that reproduce the committed frames for the vendored sheets.
-        public static let vendored = Options(
-            backgroundThreshold: 235, targetHeight: 132, snapToPixelGrid: false)
+        /// Settings used to cut the shipped character.
+        ///
+        /// Same as a generated character's, because the built-in one *is*
+        /// generated — it just happens to be committed. The old value of 235
+        /// belonged to the previous hand-drawn art and would leave a tinted
+        /// background behind on these sheets.
+        public static let vendored = Options(snapToPixelGrid: true)
     }
 
     public enum ExtractionError: Error, Equatable {
@@ -238,9 +239,9 @@ public enum SpriteExtractor {
     /// cell border, and specks far smaller than the main mass) and keep the rest.
     ///
     /// Holes are then filled back in, so the mask covers everything the outline
-    /// *encloses* rather than just its ink. Without that the guitarist's eyes and
-    /// the light face of his guitar would be punched through, because they are
-    /// background-coloured pixels sitting inside him.
+    /// *encloses* rather than just its ink. Without that the shipped owl's pale
+    /// chest and the lenses of its spectacles would be punched through, because
+    /// they are background-coloured pixels sitting inside it.
     ///
     /// Public so a single cell can be inspected without running the whole
     /// pipeline, which is how the extractor is scored against real sheets.

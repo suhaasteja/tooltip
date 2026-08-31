@@ -88,11 +88,15 @@ struct SpriteAnimationTests {
     }
 
     /// Reduce Motion shows this frame, so a non-looping sequence must settle on
-    /// its calm pose rather than freezing mid-celebration.
+    /// its calm pose rather than freezing mid-gesture.
     @Test("the resting frame is the last one, not the first")
     func restingFrameIsLast() {
         #expect(oneShot.restingFrame == "c")
-        #expect(SpriteSet.builtIn.animation(for: .talking).restingFrame == "pose-3")
+        // The shipped character explains, then settles onto its attentive idle
+        // pose — that is what Reduce Motion shows, not the raised wing.
+        let talking = SpriteSet.builtIn.animation(for: .talking)
+        #expect(talking.restingFrame == "pose-0")
+        #expect(talking.restingFrame == talking.frames.last)
     }
 
     @Test("cycle duration covers every frame once")

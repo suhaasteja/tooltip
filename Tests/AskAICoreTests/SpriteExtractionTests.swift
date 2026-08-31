@@ -140,8 +140,9 @@ struct SpriteExtractionTests {
         #expect(centreSolid)
     }
 
-    /// Without hole filling the guitarist's eyes and the light face of his guitar
-    /// are punched through, because they are background-coloured pixels inside him.
+    /// Without hole filling, pale areas enclosed by a character's outline — the
+    /// shipped owl's chest, the lenses of its spectacles — are punched through,
+    /// because they are background-coloured pixels sitting inside it.
     @Test("light pixels enclosed by the character are kept")
     func interiorHolesPreserved() throws {
         var sheet = SheetBuilder(width: 100, height: 100)

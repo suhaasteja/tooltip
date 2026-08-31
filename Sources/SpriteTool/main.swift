@@ -20,9 +20,9 @@ import ImageIO
 import UniformTypeIdentifiers
 import AskAICore
 
-/// Where the vendored source sheets live. Outside this repo on purpose: the
-/// generator is a separate project, and only the extracted frames are vendored.
-let sourceRoot = ("~/Desktop/sprite-sheet-creator/assets" as NSString).expandingTildeInPath
+/// The shipped character's source sheets, vendored so the frames are
+/// reproducible rather than opaque committed blobs.
+let sourceRoot = "Resources/SpriteSources"
 
 struct Sheet {
     let file: String
@@ -33,11 +33,11 @@ struct Sheet {
 }
 
 let vendored = [
-    // Walk cycle: the loading loop. Row-major, 6 frames.
-    Sheet(file: "sprite_1.png", columns: 3, rows: 2, name: "walk"),
-    // Four distinct poses that map onto the non-loading panel states.
-    // Row-major order is: crouch, airborne-arm-up, kneeling, standing.
-    Sheet(file: "sprite_2.png", columns: 2, rows: 2, name: "pose"),
+    // The ponder cycle: the loading loop. Row-major, 6 frames.
+    Sheet(file: "thinking.jpg", columns: 3, rows: 2, name: "walk"),
+    // Four poses mapping onto the non-loading moods. Row-major order is:
+    // idle, explaining, puzzled, searching.
+    Sheet(file: "poses.jpg", columns: 2, rows: 2, name: "pose"),
 ]
 
 // MARK: - Image I/O
@@ -162,14 +162,40 @@ if args.count >= 5, let columns = Int(args[1]), let rows = Int(args[2]) {
                    outputDir: args[4],
                    options: SpriteExtractor.Options(snapToPixelGrid: true))
 } else {
-    // Re-cut the vendored sheets. `.vendored` options reproduce the committed
-    // frames exactly; anything else here would be a silent asset change.
+    // Re-cut the shipped character. Both sheets go through the shared-scale
+    // path together, exactly as a generated character does, so the built-in one
+    // is an example of the pipeline's output rather than a special case.
     let outputDir = "\(repoRoot)/Sources/AskAI/Sprites"
-    for sheet in vendored {
-        failures += cut(
-            sheetPath: "\(sourceRoot)/\(sheet.file)",
-            columns: sheet.columns, rows: sheet.rows, name: sheet.name,
-            outputDir: outputDir, options: .vendored)
+    let loaded = vendored.compactMap { sheet -> (PixelBitmap, Sheet)? in
+        guard let bitmap = loadBitmap(path: "\(repoRoot)/\(sourceRoot)/\(sheet.file)")
+        else { print("!! could not load \(sheet.file)"); return nil }
+        return (bitmap, sheet)
+    }
+    if loaded.count != vendored.count {
+        failures += 1
+    } else {
+        do {
+            let cuts = try SpriteExtractor.frames(
+                fromSheets: loaded.map { ($0.0, $0.1.columns, $0.1.rows, []) },
+                options: .vendored)
+            try? FileManager.default.createDirectory(
+                atPath: outputDir, withIntermediateDirectories: true)
+            for (index, frames) in cuts.enumerated() {
+                let name = loaded[index].1.name
+                for (frameIndex, frame) in frames.enumerated() {
+                    let out = "\(outputDir)/\(name)-\(frameIndex).png"
+                    if writePNG(frame, to: out) {
+                        print("   \(name)-\(frameIndex).png  \(frame.width)x\(frame.height)")
+                    } else {
+                        print("!! failed to write \(out)")
+                        failures += 1
+                    }
+                }
+            }
+        } catch {
+            print("!! \(error)")
+            failures += 1
+        }
     }
     print("==> wrote frames to Sources/AskAI/Sprites")
 }
