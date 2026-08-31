@@ -58,7 +58,7 @@ struct SpriteStudioView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Picker("Character", selection: $model.activeSetID) {
-                    ForEach(model.installedSets) { set in
+                    ForEach(model.visibleSets) { set in
                         Text(set.name).tag(set.id)
                     }
                 }
@@ -89,9 +89,29 @@ struct SpriteStudioView: View {
                         }
                     }
                 } else {
-                    Text("The built-in character can't be renamed or removed.")
+                    // The built-in character ships inside the app and is the
+                    // fallback for everything else, so it cannot be deleted —
+                    // but it can be taken out of a list the user has outgrown.
+                    HStack(spacing: 8) {
+                        Button("Hide from this list") { model.hideBuiltIn() }
+                            .controlSize(.small)
+                            .disabled(!model.canHideBuiltIn)
+                        Spacer()
+                    }
+                    Text(model.canHideBuiltIn
+                         ? "Built in, so it can't be deleted — it's the fallback "
+                           + "if a character goes missing. Hiding just removes it "
+                           + "from this list."
+                         : "Built in, so it can't be deleted. Generate a character "
+                           + "of your own and you can hide this one.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if model.builtInIsHidden {
+                    Button("Show built-in character again") { model.showBuiltIn() }
+                        .controlSize(.small)
                 }
 
                 if model.player.prefersReducedMotion {

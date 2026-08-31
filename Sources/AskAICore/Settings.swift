@@ -62,6 +62,7 @@ public final class SettingsStore {
         static let streaming = "llm.streaming"
         static let launchAtLogin = "app.launchAtLogin"
         static let spriteSet = "sprite.activeSetID"
+        static let hideBuiltInSprite = "sprite.hideBuiltIn"
         static let thinkingPrompt = "sprite.prompt.thinking"
         static let posesPrompt = "sprite.prompt.poses"
     }
@@ -188,6 +189,17 @@ public final class SettingsStore {
     public var launchAtLogin: Bool {
         get { defaults.bool(forKey: Key.launchAtLogin) }
         set { defaults.set(newValue, forKey: Key.launchAtLogin) }
+    }
+
+    /// Whether the built-in character is hidden from the Settings picker.
+    ///
+    /// Presentation only. The built-in character can never actually be removed —
+    /// it ships read-only inside the bundle and is the fallback whenever a
+    /// generated one is missing, corrupt or half-written. Hiding it takes it out
+    /// of a list the user has outgrown without taking away the safety net.
+    public var hidesBuiltInSprite: Bool {
+        get { defaults.bool(forKey: Key.hideBuiltInSprite) }
+        set { defaults.set(newValue, forKey: Key.hideBuiltInSprite) }
     }
 
     /// Which character the panel draws. Defaults to the one in the app bundle.

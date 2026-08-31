@@ -1189,3 +1189,27 @@ cannot quietly render nothing or something else.
 
 Two conclusions in this session have now been reached by looking at an image;
 both times the image needed checking as carefully as the code.
+
+### The built-in character can be hidden, not deleted
+
+Reported as "I can't delete the guitarist". It is protected on purpose — it ships
+read-only inside the app bundle and is the fallback whenever a generated
+character is missing, corrupt or half-written, so removing it would leave nothing
+to draw. But wanting it out of a picker you have outgrown is a fair ask, and the
+two are separable.
+
+`hidesBuiltInSprite` takes it out of the Settings picker only. The fallback path
+is untouched, and there is a test asserting a hidden built-in is still what a
+broken selection resolves to.
+
+Three guards, all evaluated live rather than stored, so the state cannot get
+stuck:
+
+- it can only be hidden while at least one working character of the user's own
+  exists;
+- hiding switches away from it first if it is the one selected, so the picker is
+  never showing an entry it is about to remove;
+- deleting the last generated character brings it back on its own.
+
+There is a "Show built-in character again" button, because a setting that can
+only be turned on is a trap.

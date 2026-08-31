@@ -379,3 +379,54 @@ struct SpriteSetLimitTests {
         #expect(store.totalSizeOnDisk() == after, "size grew on replace")
     }
 }
+
+@Suite("Hiding the built-in character", .serialized)
+struct HideBuiltInTests {
+
+    private func makeSettings() -> (SettingsStore, UserDefaults, String) {
+        let name = "askai.hide.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        return (SettingsStore(defaults: defaults), defaults, name)
+    }
+
+    @Test("hiding is off by default")
+    func defaultsToVisible() {
+        let (store, defaults, name) = makeSettings()
+        defer { defaults.removePersistentDomain(forName: name) }
+        #expect(!store.hidesBuiltInSprite)
+    }
+
+    /// Hiding is presentation only. The panel's fallback must be unaffected, or
+    /// a corrupt character would leave nothing to draw.
+    @Test("hiding does not stop the built-in being the fallback")
+    func hidingDoesNotBreakFallback() {
+        let (store, defaults, name) = makeSettings()
+        let sets = SpriteSetStore(root: URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("askai-hide-\(UUID().uuidString)"))
+        defer {
+            defaults.removePersistentDomain(forName: name)
+            try? FileManager.default.removeItem(at: sets.root)
+        }
+        store.hidesBuiltInSprite = true
+        store.activeSpriteSetID = "something-that-is-gone"
+        #expect(store.activeSpriteSet(store: sets) == SpriteSet.builtIn)
+    }
+
+    @Test("the built-in is still installed while hidden")
+    func stillInstalled() {
+        let sets = SpriteSetStore(root: URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("askai-hide2-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: sets.root) }
+        // Hiding is a Settings concern; the store always knows about it.
+        #expect(sets.set(id: SpriteSet.builtInID) == SpriteSet.builtIn)
+        #expect(sets.installedSets().contains(SpriteSet.builtIn))
+    }
+
+    @Test("the flag survives a round trip")
+    func persists() {
+        let (store, defaults, name) = makeSettings()
+        defer { defaults.removePersistentDomain(forName: name) }
+        store.hidesBuiltInSprite = true
+        #expect(SettingsStore(defaults: defaults).hidesBuiltInSprite)
+    }
+}

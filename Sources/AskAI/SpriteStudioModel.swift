@@ -108,6 +108,46 @@ final class SpriteStudioModel: ObservableObject {
     /// The selected character, or the built-in one.
     var selectedSet: SpriteSet? { sets.set(id: activeSetID) }
 
+    /// What the picker shows.
+    ///
+    /// Hides the built-in character when the user has asked for that *and* has a
+    /// working one of their own. The condition is evaluated every time rather
+    /// than stored, so deleting the last generated character brings it back on
+    /// its own instead of leaving an empty picker.
+    var visibleSets: [SpriteSet] {
+        guard store.hidesBuiltInSprite else { return installedSets }
+        let others = installedSets.filter { $0.id != SpriteSet.builtInID }
+        guard !others.isEmpty else { return installedSets }
+        // Never hide what is currently selected: the picker would show nothing.
+        if activeSetID == SpriteSet.builtInID { return installedSets }
+        return others
+    }
+
+    /// Whether the built-in character could be hidden right now.
+    var canHideBuiltIn: Bool {
+        !store.hidesBuiltInSprite
+            && installedSets.contains { $0.id != SpriteSet.builtInID }
+    }
+
+    var builtInIsHidden: Bool { store.hidesBuiltInSprite }
+
+    /// Takes the built-in character out of the picker, switching away from it
+    /// first if it is the one selected.
+    func hideBuiltIn() {
+        guard canHideBuiltIn else { return }
+        if activeSetID == SpriteSet.builtInID,
+           let replacement = installedSets.first(where: { $0.id != SpriteSet.builtInID }) {
+            activeSetID = replacement.id
+        }
+        store.hidesBuiltInSprite = true
+        objectWillChange.send()
+    }
+
+    func showBuiltIn() {
+        store.hidesBuiltInSprite = false
+        objectWillChange.send()
+    }
+
     /// The built-in character ships inside the app bundle and is the fallback
     /// for everything else, so it cannot be renamed, regenerated or removed.
     var selectionIsEditable: Bool { activeSetID != SpriteSet.builtInID }
