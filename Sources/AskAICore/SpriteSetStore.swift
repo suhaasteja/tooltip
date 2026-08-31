@@ -96,6 +96,37 @@ public struct SpriteSetStore {
         try FileManager.default.removeItem(at: directory(for: id))
     }
 
+    /// Changes a set's display name, leaving its frames and id alone.
+    ///
+    /// A separate operation from `save` because renaming must not require the
+    /// frames to be in memory — they are on disk, and re-reading several
+    /// megabytes of PNG to change one string would be absurd. The id does not
+    /// change: it is the directory name, and moving it would orphan the
+    /// selection stored in settings.
+    public func rename(id: String, to name: String) throws {
+        guard id != SpriteSet.builtInID else { throw SpriteSetError.cannotOverwriteBuiltIn }
+        guard let existing = set(id: id) else { throw SpriteSetError.notFound }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw SpriteSetError.emptyName }
+
+        let renamed = SpriteSet(id: existing.id, name: trimmed,
+                                animations: existing.animations)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(renamed).write(to: manifestURL(for: id))
+    }
+
+    /// Total bytes on disk, for the disk-use cap in Stage 6 and for showing the
+    /// user what their characters cost them.
+    public func sizeOnDisk(id: String) -> Int {
+        let directory = self.directory(for: id)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        return files.reduce(0) {
+            $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+    }
+
     /// Whether every frame a set names is actually present.
     ///
     /// Cheap enough to run before switching to a set, and the difference between
@@ -112,4 +143,17 @@ public struct SpriteSetStore {
 
 public enum SpriteSetError: Error, Equatable {
     case cannotOverwriteBuiltIn
+    case notFound
+    case emptyName
+
+    public var userMessage: String {
+        switch self {
+        case .cannotOverwriteBuiltIn:
+            return "The built-in character cannot be changed or removed."
+        case .notFound:
+            return "That character is no longer installed."
+        case .emptyName:
+            return "A character needs a name."
+        }
+    }
 }

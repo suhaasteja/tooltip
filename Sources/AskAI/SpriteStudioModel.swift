@@ -51,6 +51,7 @@ final class SpriteStudioModel: ObservableObject {
             guard activeSetID != oldValue else { return }
             store.activeSpriteSetID = activeSetID
             onChange()
+            editedName = sets.set(id: activeSetID)?.name ?? ""
             refreshPreview()
         }
     }
@@ -65,6 +66,10 @@ final class SpriteStudioModel: ObservableObject {
     let player = FramePlayer()
     /// Shown once, before the first paid run.
     @Published var showCostWarning = false
+    /// Confirmation before a destructive delete.
+    @Published var showDeleteConfirmation = false
+    /// The editable display name of the selected character.
+    @Published var editedName: String = ""
 
     private var pending: SpriteGenerationJob.Output?
     private var task: Task<Void, Never>?
@@ -94,7 +99,79 @@ final class SpriteStudioModel: ObservableObject {
         self.imageAPIKey = ""
         self.thinkingPrompt = store.thinkingPrompt
         self.posesPrompt = store.posesPrompt
+        self.editedName = sets.set(id: store.activeSpriteSetID)?.name ?? ""
         refreshPreview()
+    }
+
+    // MARK: - Managing characters
+
+    /// The selected character, or the built-in one.
+    var selectedSet: SpriteSet? { sets.set(id: activeSetID) }
+
+    /// The built-in character ships inside the app bundle and is the fallback
+    /// for everything else, so it cannot be renamed, regenerated or removed.
+    var selectionIsEditable: Bool { activeSetID != SpriteSet.builtInID }
+
+    /// Human-readable size of the selected character on disk.
+    var selectedSizeDescription: String? {
+        guard selectionIsEditable else { return nil }
+        let bytes = sets.sizeOnDisk(id: activeSetID)
+        guard bytes > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
+    func commitRename() {
+        guard selectionIsEditable else { return }
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != selectedSet?.name else {
+            // Reject silently by restoring: an empty name is a slip, not a
+            // decision worth an error banner.
+            editedName = selectedSet?.name ?? ""
+            return
+        }
+        do {
+            try sets.rename(id: activeSetID, to: trimmed)
+            installedSets = sets.installedSets()
+        } catch let error as SpriteSetError {
+            phase = .failed(error.userMessage)
+            editedName = selectedSet?.name ?? ""
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Removes the selected character.
+    ///
+    /// The delicate part is that the panel may be showing it right now. Order
+    /// matters: switch the selection to the built-in *first*, so the panel is
+    /// already looking elsewhere, then delete the files and drop the cache.
+    func deleteSelected() {
+        guard selectionIsEditable else { return }
+        let doomed = activeSetID
+        activeSetID = SpriteSet.builtInID      // didSet re-points the panel
+        do {
+            try sets.delete(id: doomed)
+            SpriteLoader.forget(doomed)
+            installedSets = sets.installedSets()
+            editedName = selectedSet?.name ?? ""
+            refreshPreview()
+        } catch let error as SpriteSetError {
+            phase = .failed(error.userMessage)
+        } catch {
+            phase = .failed("Couldn't remove the character: \(error.localizedDescription)")
+        }
+    }
+
+    /// Regenerates the selected character's art with the current prompts.
+    ///
+    /// This is the only way to bring a character made under older prompts up to
+    /// date: its frames *are* the old actions, and no manifest edit can turn a
+    /// walk cycle into pondering. Reuses the description and the id, so the
+    /// result replaces the original rather than accumulating a near-duplicate.
+    func regenerateSelected() {
+        guard let set = selectedSet, selectionIsEditable else { return }
+        description = set.name
+        showCostWarning = true
     }
 
     // MARK: - Preview
@@ -268,6 +345,7 @@ final class SpriteStudioModel: ObservableObject {
 
     func refreshSets() {
         installedSets = sets.installedSets()
+        editedName = sets.set(id: activeSetID)?.name ?? ""
     }
 
     func restorePrompts() {

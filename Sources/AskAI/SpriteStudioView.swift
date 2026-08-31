@@ -31,6 +31,15 @@ struct SpriteStudioView: View {
             Text("Creating a character sends three image requests to Google and "
                  + "is billed to your own API key. It takes about a minute.")
         }
+        .alert("Delete this character?",
+               isPresented: $model.showDeleteConfirmation) {
+            Button("Delete", role: .destructive) { model.deleteSelected() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Its frames are removed from disk. Ask AI goes back to the "
+                 + "built-in character. This cannot be undone — regenerating "
+                 + "costs another paid run.")
+        }
     }
 
     // MARK: Which character is in use
@@ -58,12 +67,35 @@ struct SpriteStudioView: View {
                         Text(Self.label(for: mood)).tag(mood)
                     }
                 }
-                if model.player.prefersReducedMotion {
-                    Text("Holding still because Reduce Motion is on.")
+
+                if model.selectionIsEditable {
+                    // Rename commits on Enter or on losing focus, rather than
+                    // behind a modal: it is one string, and a dialog for it
+                    // would be more ceremony than the change deserves.
+                    TextField("Name", text: $model.editedName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { model.commitRename() }
+
+                    HStack(spacing: 8) {
+                        Button("Regenerate…") { model.regenerateSelected() }
+                            .controlSize(.small)
+                            .disabled(model.isRunning)
+                        Button("Delete…") { model.showDeleteConfirmation = true }
+                            .controlSize(.small)
+                            .disabled(model.isRunning)
+                        Spacer()
+                        if let size = model.selectedSizeDescription {
+                            Text(size).font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                } else {
+                    Text("The built-in character can't be renamed or removed.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    Text("Shown beside the answer when you use Ask AI.")
+                }
+
+                if model.player.prefersReducedMotion {
+                    Text("Holding still because Reduce Motion is on.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

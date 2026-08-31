@@ -1096,3 +1096,38 @@ Two things it inherits from the panel on purpose:
 Mood labels in the picker describe what the user would see happen ("Thinking
 about an answer") rather than the enum case, which is named for the panel state
 it comes from.
+
+## Managing characters (PLAN-sprites.md Stage 5)
+
+Rename, delete and regenerate, plus size on disk. The built-in character is
+protected from all three: it ships read-only inside the bundle and is the
+fallback for everything else.
+
+Three things were more delicate than "add three buttons" suggests:
+
+- **Deleting the character the panel is currently showing.** Order matters:
+  the selection moves to the built-in *first*, so the panel is already looking
+  elsewhere, and only then are the files removed and the frame cache dropped.
+  Doing it the other way leaves the panel pointed at a directory that no longer
+  exists. There is belt-and-braces here too — `activeSpriteSet` already refuses
+  to return a set whose frames are missing, and a test asserts the fallback holds
+  even if the UI never moved the selection.
+- **Rename is not `save`.** `save` requires the frames in memory, and re-reading
+  several megabytes of PNG to change one string would be absurd, so `rename`
+  rewrites only the manifest. The **id does not change**: it is the directory
+  name, and moving it would orphan the selection stored in settings. So a
+  character can be called anything without its identity moving.
+- **Regenerate reuses the id**, which is what makes it replace rather than
+  accumulate a near-duplicate — and is exactly why `SpriteLoader.forget` has to
+  run, or cached frames from the previous version keep winning.
+
+An empty rename restores the old name silently rather than raising an error: it
+is a slip, not a decision worth a banner.
+
+### Characters made under the old prompts cannot be fixed in place
+
+The mole, the owl and anything else generated before the thinking/explaining
+redesign have walk-cycle **art**. No manifest edit turns a walk cycle into
+pondering — the frames are the actions. Regenerate is the only fix, and it costs
+a paid run per character, so it is a button rather than something the app does on
+anyone's behalf.

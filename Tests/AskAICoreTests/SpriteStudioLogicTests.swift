@@ -159,3 +159,153 @@ struct SpritePromptSettingsTests {
         #expect(onDisk == Data([2]))
     }
 }
+
+@Suite("Sprite set CRUD", .serialized)
+struct SpriteSetCRUDTests {
+
+    private func makeStore() -> SpriteSetStore {
+        SpriteSetStore(root: URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("askai-crud-\(UUID().uuidString)"))
+    }
+
+    private func sample(id: String = "owl", name: String = "an owl") -> SpriteSet {
+        SpriteSet(
+            id: id, name: name,
+            animations: [SpriteMood.thinking.rawValue:
+                SpriteAnimation(frames: ["walk-0", "walk-1"],
+                                frameDuration: 0.18, loops: true)])
+    }
+
+    private func frames() -> [String: Data] {
+        ["walk-0": Data([0x89, 0x50, 0x4E, 0x47]), "walk-1": Data([0x89, 0x50, 0x4E, 0x48])]
+    }
+
+    // MARK: Rename
+
+    @Test("renaming changes the name but not the id or the frames")
+    func renameKeepsIdentity() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        try store.save(sample(), frames: frames())
+
+        try store.rename(id: "owl", to: "Professor Hoot")
+        let renamed = try #require(store.set(id: "owl"))
+        #expect(renamed.name == "Professor Hoot")
+        #expect(renamed.id == "owl", "the id is the directory name and must not move")
+        #expect(store.isComplete(renamed), "frames were disturbed by a rename")
+    }
+
+    @Test("renaming preserves the animations")
+    func renameKeepsAnimations() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        try store.save(sample(), frames: frames())
+        try store.rename(id: "owl", to: "Hoot")
+        #expect(store.set(id: "owl")?.animations == sample().animations)
+    }
+
+    @Test("an empty or whitespace name is rejected")
+    func emptyNameRejected() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        try store.save(sample(), frames: frames())
+        #expect(throws: SpriteSetError.emptyName) { try store.rename(id: "owl", to: "   ") }
+        #expect(store.set(id: "owl")?.name == "an owl", "the old name should survive")
+    }
+
+    @Test("renaming something that is not installed reports it")
+    func renameMissing() {
+        #expect(throws: SpriteSetError.notFound) {
+            try self.makeStore().rename(id: "ghost", to: "x")
+        }
+    }
+
+    @Test("the built-in character cannot be renamed or deleted")
+    func builtInIsProtected() {
+        let store = makeStore()
+        #expect(throws: SpriteSetError.cannotOverwriteBuiltIn) {
+            try store.rename(id: SpriteSet.builtInID, to: "x")
+        }
+        #expect(throws: SpriteSetError.cannotOverwriteBuiltIn) {
+            try store.delete(id: SpriteSet.builtInID)
+        }
+    }
+
+    // MARK: Delete
+
+    /// The case that matters: the panel may be showing the character being
+    /// removed. Selection has to move to the built-in one, and the resolver has
+    /// to agree — otherwise the panel is pointed at a directory that is gone.
+    @Test("deleting the selected character falls back to the built-in")
+    func deleteActiveFallsBack() throws {
+        let store = makeStore()
+        let suite = "askai.crud.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let settings = SettingsStore(defaults: defaults)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: store.root)
+        }
+
+        try store.save(sample(), frames: frames())
+        settings.activeSpriteSetID = "owl"
+        #expect(settings.activeSpriteSet(store: store).id == "owl")
+
+        try store.delete(id: "owl")
+        // Even without the UI moving the selection, the resolver must not
+        // return a character whose files are gone.
+        #expect(settings.activeSpriteSet(store: store) == SpriteSet.builtIn)
+    }
+
+    @Test("deleting removes the directory and the listing entry")
+    func deleteRemoves() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        try store.save(sample(), frames: frames())
+        #expect(store.installedSets().count == 2)
+
+        try store.delete(id: "owl")
+        #expect(store.set(id: "owl") == nil)
+        #expect(store.installedSets() == [SpriteSet.builtIn])
+        #expect(!FileManager.default.fileExists(atPath: store.directory(for: "owl").path))
+    }
+
+    @Test("deleting one character leaves the others alone")
+    func deleteIsScoped() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        try store.save(sample(id: "owl", name: "an owl"), frames: frames())
+        try store.save(sample(id: "mole", name: "a mole"), frames: frames())
+
+        try store.delete(id: "owl")
+        #expect(store.set(id: "mole") != nil)
+        #expect(store.installedSets().count == 2, "built-in plus the mole")
+    }
+
+    // MARK: Regenerate
+
+    /// Regenerating reuses the id, so it must replace rather than accumulate —
+    /// and the new frames must be the ones on disk afterwards.
+    @Test("regenerating replaces frames in place")
+    func regenerateReplaces() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        try store.save(sample(), frames: frames())
+        try store.save(sample(name: "an owl"),
+                       frames: ["walk-0": Data([1]), "walk-1": Data([2])])
+
+        #expect(store.installedSets().count == 2, "a duplicate was created")
+        let onDisk = try Data(
+            contentsOf: store.directory(for: "owl").appendingPathComponent("walk-0.png"))
+        #expect(onDisk == Data([1]))
+    }
+
+    @Test("size on disk is reported for a saved set and zero for a missing one")
+    func sizeOnDisk() throws {
+        let store = makeStore()
+        defer { try? FileManager.default.removeItem(at: store.root) }
+        try store.save(sample(), frames: frames())
+        #expect(store.sizeOnDisk(id: "owl") > 0)
+        #expect(store.sizeOnDisk(id: "ghost") == 0)
+    }
+}

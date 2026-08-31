@@ -352,7 +352,10 @@ written.
 
 ---
 
-## Stage 5 — Manage sets
+## Stage 5 — Manage sets — **DONE**
+
+> Rename, delete, regenerate, size on disk. Built-in protected. 220 tests
+> (was 210). See NOTES.md.
 
 - List, switch, rename, delete.
 - The built-in set is undeletable and is the fallback.
