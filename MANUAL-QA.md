@@ -131,6 +131,34 @@ Settings → General → Launch at login.
 - [ ] After a logout/login cycle, AskAI is running
 - [ ] Toggling off stops that happening
 
+## 13. Demo pass — `DEMO.md`
+
+`DEMO.md` is a single document written to exercise everything at once, and is
+the fastest way to check a build by hand. Open it in TextEdit (or any app with a
+Services menu) and work down it.
+
+It is arranged so that highlighting your way through hits the awkward cases
+without having to remember them: terms at the top-left, terms at the right
+margin where the bubble must flip flanks, a paragraph for Summarise, sentences
+in German and Japanese for Translate, a self-contained question for the Custom
+slot, deliberately awkward selections, and a bottom section for the flip-above
+case.
+
+What to watch for, in the order the document raises it:
+
+| Section | Should happen |
+|---|---|
+| 1 | Panel appears beside the word, character adjacent to it |
+| 2 | Near the right edge the bubble flips to the character's left |
+| 3 | Summarise keeps the causal chain, not just the nouns |
+| 4 | Translate handles both Latin and non-Latin script |
+| 5 | Custom sends the selection with no added instruction |
+| 6 | Scrolling the page closes the panel; scrolling *inside* it does not |
+| 7 | Whitespace-only selection shows the searching character, not an error |
+| 8 | At the bottom of a window the panel flips above, character just above the word |
+
+---
+
 ## 12. Long and awkward input
 
 - [ ] A selection over 8,000 characters is truncated with a visible marker
